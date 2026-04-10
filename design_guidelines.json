@@ -1,0 +1,156 @@
+{
+  "theme": "Light",
+  "archetype": "1 (Organic & Earthy)",
+  "rationale": "For a cooking and pantry tracking app, trust, warmth, and a sensory appeal are paramount. A clinical dark mode doesn't feel appetizing. Warm earthy tones allow food imagery to stand out while conveying health and freshness.",
+  "colors": {
+    "background": {
+      "base": "#FDFBF7",
+      "surface": "#F4F1EA",
+      "surface_elevated": "#FFFFFF"
+    },
+    "text": {
+      "primary": "#2D3728",
+      "secondary": "#5C6B54",
+      "accent": "#2C5545",
+      "inverse": "#FDFBF7"
+    },
+    "primary": {
+      "DEFAULT": "#2C5545",
+      "hover": "#3D6F5B",
+      "foreground": "#FDFBF7"
+    },
+    "secondary": {
+      "DEFAULT": "#E8ECE1",
+      "hover": "#D5DCC9",
+      "foreground": "#2C5545"
+    },
+    "accent": {
+      "DEFAULT": "#CC5500",
+      "hover": "#E66000",
+      "foreground": "#FFFFFF"
+    },
+    "destructive": {
+      "DEFAULT": "#B43E3E",
+      "hover": "#CF4E4E",
+      "foreground": "#FFFFFF"
+    },
+    "border": "#E2E0D8",
+    "ring": "#2C5545"
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Outfit, sans-serif",
+      "weight": "font-semibold to font-bold",
+      "tracking": "tracking-tight",
+      "sizes": {
+        "h1": "text-4xl sm:text-5xl lg:text-6xl",
+        "h2": "text-2xl sm:text-3xl lg:text-4xl",
+        "h3": "text-xl sm:text-2xl",
+        "h4": "text-lg sm:text-xl"
+      },
+      "rules": "Never center by default. Use fluid scaling for H1."
+    },
+    "body": {
+      "font_family": "Work Sans, sans-serif",
+      "weight": "font-normal to font-medium",
+      "leading": "leading-relaxed",
+      "sizes": {
+        "base": "text-base",
+        "small": "text-sm",
+        "label": "text-xs tracking-[0.2em] uppercase"
+      }
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Generous Spacing. Use p-6, p-8, or p-12 for containers.",
+    "dashboard_grid": {
+      "pattern": "Bento Grid (Control Room Mode)",
+      "gap": "gap-6",
+      "card_radius": "rounded-3xl",
+      "card_padding": "p-6 sm:p-8"
+    },
+    "marketing_grid": {
+      "pattern": "Tetris Grid",
+      "gap": "gap-8 md:gap-12"
+    }
+  },
+  "components": {
+    "cards": {
+      "style": "Flat Solid",
+      "background": "bg-white",
+      "border": "border border-[#E2E0D8]",
+      "shadow": "shadow-[0_2px_12px_rgba(44,85,69,0.04)]",
+      "hover": "hover:-translate-y-1 hover:shadow-[0_8px_24px_rgba(44,85,69,0.08)] transition-all duration-300",
+      "radius": "rounded-2xl md:rounded-3xl"
+    },
+    "buttons": {
+      "primary": "bg-[#2C5545] text-[#FDFBF7] rounded-full px-6 py-3 hover:bg-[#3D6F5B] transition-colors",
+      "secondary": "bg-[#E8ECE1] text-[#2C5545] rounded-full px-6 py-3 hover:bg-[#D5DCC9] transition-colors"
+    },
+    "inputs": {
+      "style": "bg-white border border-[#E2E0D8] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#2C5545] focus:border-transparent transition-all"
+    },
+    "glassmorphism": {
+      "usage": "Sticky headers, floating navs, filter bars",
+      "style": "bg-[#FDFBF7]/80 backdrop-blur-xl border-b border-[#E2E0D8]/50"
+    },
+    "badges": {
+      "style": "bg-[#E8ECE1] text-[#2C5545] px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider"
+    },
+    "rules": {
+      "shadcn": "Heavily customize Shadcn components to remove the 'Vercel' look. Replace standard border-radius with rounded-2xl/3xl. Use warm tinted greys instead of default slates.",
+      "testing": "All interactive elements MUST have a data-testid attribute in kebab-case format based on role."
+    }
+  },
+  "icons_and_assets": {
+    "icon_library": "@phosphor-icons/react",
+    "icon_style": "Duotone or Regular weight to match the tactile earthy aesthetic.",
+    "images": [
+      {
+        "category": "app_logo",
+        "url": "https://static.prod-images.emergentagent.com/jobs/92889a24-3cf9-4b50-8107-eb1a43bf7294/images/bf1627652a4a5e009e74e84be99079dbe96eca13d294667f7cee5812cf142605.png",
+        "description": "App logo with stylized leaf and fork"
+      },
+      {
+        "category": "hero_background",
+        "url": "https://static.prod-images.emergentagent.com/jobs/92889a24-3cf9-4b50-8107-eb1a43bf7294/images/10d58822537624b71e94058a90a133316d359dc6ea1ae5d9251ed0a0a1be36d7.png",
+        "description": "Abstract 3D food ingredients composition"
+      },
+      {
+        "category": "scan_receipt_graphic",
+        "url": "https://static.prod-images.emergentagent.com/jobs/92889a24-3cf9-4b50-8107-eb1a43bf7294/images/1a8a3c53284c1ac05fa457b62feb443d373fc1f5c9129f8066e0fc9b632db36d.png",
+        "description": "Graphic for the 'Scan Receipt or Barcode' feature"
+      },
+      {
+        "category": "empty_state",
+        "url": "https://static.prod-images.emergentagent.com/jobs/92889a24-3cf9-4b50-8107-eb1a43bf7294/images/f4e62cb7650b50067854b3bd5d01361e8015e4a5d18df085abc4ab7ae4546321.png",
+        "description": "Empty pantry shelf illustration for onboarding or empty states"
+      },
+      {
+        "category": "food_photography_1",
+        "url": "https://images.pexels.com/photos/4198169/pexels-photo-4198169.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Chopped scallions and knife flatlay"
+      },
+      {
+        "category": "food_photography_2",
+        "url": "https://images.pexels.com/photos/4020559/pexels-photo-4020559.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Fresh organic vegetables flatlay"
+      }
+    ]
+  },
+  "interactions_and_motion": {
+    "hover": "Scale up slightly (transform scale-105) for image cards. Buttons should shift background color smoothly.",
+    "page_load": "Staggered fade-up animations for dashboard bento grids using framer-motion.",
+    "accessibility": "Respect prefers-reduced-motion. Ensure focus rings are highly visible (ring-2 ring-accent offset-2)."
+  },
+  "instructions_to_main_agent": [
+    "Use @phosphor-icons/react for all iconography.",
+    "Setup Tailwind config to use the custom colors (primary, secondary, accent, destructive, background, text).",
+    "Customize Shadcn components heavily: modify standard borders, increase border radius to match rounded-2xl/3xl, use the defined earthy typography.",
+    "Use the 'Bento Grid' layout for the Dashboard (pantry tracker, quick recipes, expiring soon).",
+    "Integrate the scan receipt graphic into an upload/scan widget component.",
+    "Include 'data-testid' attributes (e.g., 'data-testid=\"recipe-generate-btn\"') for all interactive elements.",
+    "Use framer-motion for smooth staggered list animations on the recipes list.",
+    "DO NOT use Inter or generic slates. The UI must feel warm, organic, and appetizing."
+  ]
+}
