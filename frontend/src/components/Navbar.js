@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { House, CookingPot, Package, Camera, ShoppingCart, BookmarkSimple, User, List, X } from '@phosphor-icons/react';
+import { House, CookingPot, Package, Camera, ShoppingCart, BookmarkSimple, CalendarBlank, User, List, X } from '@phosphor-icons/react';
+import NotificationBell from './NotificationBell';
 
 const NAV_ITEMS = [
   { path: '/dashboard', label: 'Home', icon: House },
   { path: '/pantry', label: 'Pantry', icon: Package },
   { path: '/recipes', label: 'Recipes', icon: CookingPot },
   { path: '/scan', label: 'Scan', icon: Camera },
+  { path: '/mealplan', label: 'Meal Plan', icon: CalendarBlank },
   { path: '/grocery', label: 'Grocery', icon: ShoppingCart },
   { path: '/saved', label: 'Saved', icon: BookmarkSimple },
 ];
@@ -48,7 +50,8 @@ export default function Navbar() {
             })}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <NotificationBell />
             <button
               data-testid="nav-profile"
               onClick={() => navigate('/profile')}

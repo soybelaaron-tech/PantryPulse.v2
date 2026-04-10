@@ -12,6 +12,7 @@ import RecipeGenerator from "./pages/RecipeGenerator";
 import SavedRecipes from "./pages/SavedRecipes";
 import Scanner from "./pages/Scanner";
 import GroceryList from "./pages/GroceryList";
+import MealPlanner from "./pages/MealPlanner";
 import Profile from "./pages/Profile";
 
 function AppRouter() {
@@ -29,6 +30,7 @@ function AppRouter() {
       <Route path="/recipes" element={<ProtectedRoute><RecipeGenerator /></ProtectedRoute>} />
       <Route path="/saved" element={<ProtectedRoute><SavedRecipes /></ProtectedRoute>} />
       <Route path="/scan" element={<ProtectedRoute><Scanner /></ProtectedRoute>} />
+      <Route path="/mealplan" element={<ProtectedRoute><MealPlanner /></ProtectedRoute>} />
       <Route path="/grocery" element={<ProtectedRoute><GroceryList /></ProtectedRoute>} />
       <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
     </Routes>

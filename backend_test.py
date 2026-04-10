@@ -39,11 +39,21 @@ class FridgeToTableAPITester:
     def create_test_session(self):
         """Create a test user and session in MongoDB for auth-gated testing"""
         try:
-            # Create test user
+            # Use the pre-created test session from the review request
+            self.session_token = "test_session_screenshot_123"
+            self.user_id = "test-user-screenshot"
+            
+            # Verify the session exists
+            session = self.db.user_sessions.find_one({"session_token": self.session_token})
+            if session:
+                print(f"✅ Using existing test session for user: {self.user_id}")
+                return True
+            
+            # Create test user if not exists
             test_user = {
-                "user_id": "test_user_123",
+                "user_id": self.user_id,
                 "email": "test@example.com",
-                "name": "Test User",
+                "name": "Test User Screenshot",
                 "picture": "https://example.com/avatar.jpg",
                 "allergies": ["Peanuts"],
                 "dietary_preferences": ["Vegetarian"],
@@ -76,7 +86,7 @@ class FridgeToTableAPITester:
             print(f"❌ Failed to create test session: {e}")
             return False
 
-    def make_request(self, method, endpoint, data=None, files=None, auth_required=True):
+    def make_request(self, method, endpoint, data=None, files=None, auth_required=True, timeout=30):
         """Make HTTP request with optional authentication"""
         url = f"{self.api_url}/{endpoint}"
         headers = {'Content-Type': 'application/json'}
@@ -86,18 +96,18 @@ class FridgeToTableAPITester:
         
         try:
             if method == 'GET':
-                response = requests.get(url, headers=headers, timeout=30)
+                response = requests.get(url, headers=headers, timeout=timeout)
             elif method == 'POST':
                 if files:
                     # Remove Content-Type for file uploads
                     headers.pop('Content-Type', None)
-                    response = requests.post(url, headers=headers, files=files, timeout=30)
+                    response = requests.post(url, headers=headers, files=files, timeout=timeout)
                 else:
-                    response = requests.post(url, json=data, headers=headers, timeout=30)
+                    response = requests.post(url, json=data, headers=headers, timeout=timeout)
             elif method == 'PUT':
-                response = requests.put(url, json=data, headers=headers, timeout=30)
+                response = requests.put(url, json=data, headers=headers, timeout=timeout)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=headers, timeout=30)
+                response = requests.delete(url, headers=headers, timeout=timeout)
             else:
                 raise ValueError(f"Unsupported method: {method}")
                 
@@ -408,6 +418,133 @@ class FridgeToTableAPITester:
         else:
             self.log_test("GET /stats", False, f"Expected 200, got {response.status_code if response else 'No response'}")
 
+    def test_barcode_endpoints(self):
+        """Test barcode scanning endpoints (NEW FEATURE)"""
+        print("\n📱 Testing Barcode Scanner Endpoints...")
+        
+        # Test valid barcode (Coca-Cola)
+        response = self.make_request('GET', 'barcode/5449000000996')
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if data.get('found') == True and 'Original Taste' in data.get('name', ''):
+                    self.log_test("GET /barcode/5449000000996 (valid)", True)
+                else:
+                    self.log_test("GET /barcode/5449000000996 (valid)", False, f"Expected found:true with 'Original Taste', got: {data}")
+            except:
+                self.log_test("GET /barcode/5449000000996 (valid)", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /barcode/5449000000996 (valid)", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test invalid barcode
+        response = self.make_request('GET', 'barcode/0000000000000')
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if data.get('found') == False:
+                    self.log_test("GET /barcode/0000000000000 (invalid)", True)
+                else:
+                    self.log_test("GET /barcode/0000000000000 (invalid)", False, f"Expected found:false, got: {data}")
+            except:
+                self.log_test("GET /barcode/0000000000000 (invalid)", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /barcode/0000000000000 (invalid)", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+
+    def test_notification_endpoints(self):
+        """Test expiry notification endpoints (NEW FEATURE)"""
+        print("\n🔔 Testing Expiry Notification Endpoints...")
+        
+        response = self.make_request('GET', 'notifications/expiring')
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if 'notifications' in data and 'count' in data:
+                    self.log_test("GET /notifications/expiring", True)
+                    print(f"   Found {data.get('count', 0)} expiring items")
+                else:
+                    self.log_test("GET /notifications/expiring", False, f"Missing notifications or count fields: {data}")
+            except:
+                self.log_test("GET /notifications/expiring", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /notifications/expiring", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+
+    def test_meal_plan_endpoints(self):
+        """Test meal planner endpoints (NEW FEATURE)"""
+        print("\n📅 Testing Meal Planner Endpoints...")
+        
+        # Test GET meal plan
+        response = self.make_request('GET', 'mealplan')
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                self.log_test("GET /mealplan", True)
+                print(f"   Found {len(data) if isinstance(data, list) else 'unknown'} meal plan entries")
+            except:
+                self.log_test("GET /mealplan", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /mealplan", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test POST meal plan entry
+        meal_entry = {
+            "day": "Monday",
+            "meal_type": "breakfast", 
+            "recipe": {
+                "title": "Test Breakfast",
+                "description": "A test meal for API testing",
+                "total_time": 15,
+                "calories_per_serving": 300,
+                "ingredients_used": ["eggs", "bread"],
+                "ingredients_needed": [],
+                "instructions": ["Cook eggs", "Toast bread"]
+            }
+        }
+        
+        response = self.make_request('POST', 'mealplan', meal_entry)
+        entry_id = None
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if 'entry_id' in data:
+                    entry_id = data['entry_id']
+                    self.log_test("POST /mealplan", True)
+                else:
+                    self.log_test("POST /mealplan", False, "Missing entry_id in response")
+            except:
+                self.log_test("POST /mealplan", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /mealplan", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test DELETE specific meal plan entry
+        if entry_id:
+            response = self.make_request('DELETE', f'mealplan/{entry_id}')
+            if response and response.status_code == 200:
+                self.log_test("DELETE /mealplan/{entry_id}", True)
+            else:
+                self.log_test("DELETE /mealplan/{entry_id}", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test DELETE all meal plan entries
+        response = self.make_request('DELETE', 'mealplan')
+        if response and response.status_code == 200:
+            self.log_test("DELETE /mealplan (clear all)", True)
+        else:
+            self.log_test("DELETE /mealplan (clear all)", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test AI meal plan generation (this is slow)
+        print("   🤖 Testing AI meal plan generation (may take 15-30 seconds)...")
+        response = self.make_request('POST', 'mealplan/generate', {"days": ["Monday", "Tuesday"]}, timeout=45)
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if 'meal_plan' in data:
+                    self.log_test("POST /mealplan/generate", True)
+                    print(f"   Generated meal plan with {len(data.get('shopping_list', []))} shopping items")
+                else:
+                    self.log_test("POST /mealplan/generate", False, f"Missing meal_plan field: {data}")
+            except:
+                self.log_test("POST /mealplan/generate", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /mealplan/generate", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+
     def run_all_tests(self):
         """Run all backend API tests"""
         print("🚀 Starting Fridge to Table Backend API Tests...")
@@ -426,6 +563,11 @@ class FridgeToTableAPITester:
         self.test_grocery_endpoints()
         self.test_profile_endpoints()
         self.test_stats_endpoint()
+        
+        # NEW FEATURES TESTING
+        self.test_barcode_endpoints()
+        self.test_notification_endpoints()
+        self.test_meal_plan_endpoints()
         
         # Print summary
         print(f"\n📊 Test Summary:")
