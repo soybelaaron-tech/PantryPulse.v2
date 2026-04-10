@@ -359,6 +359,27 @@ class FridgeToTableAPITester:
                 self.log_test("POST /grocery/suggestions", False, "Invalid JSON response")
         else:
             self.log_test("POST /grocery/suggestions", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test NEW priced suggestions endpoint
+        print("⏳ Generating priced grocery suggestions with AI (this may take 10-15 seconds)...")
+        response = self.make_request('POST', 'grocery/suggestions-priced', data=grocery_request)
+        if response and response.status_code == 200:
+            try:
+                result = response.json()
+                if 'suggestions' in result and len(result['suggestions']) > 0:
+                    # Check if suggestions have estimated_price field
+                    first_suggestion = result['suggestions'][0]
+                    if 'estimated_price' in first_suggestion:
+                        self.log_test("POST /grocery/suggestions-priced", True)
+                        self.test_suggestions = result['suggestions'][:3]  # Save first 3 for cart testing
+                    else:
+                        self.log_test("POST /grocery/suggestions-priced", False, "Suggestions missing estimated_price field")
+                else:
+                    self.log_test("POST /grocery/suggestions-priced", False, "No suggestions in response")
+            except:
+                self.log_test("POST /grocery/suggestions-priced", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /grocery/suggestions-priced", False, f"Expected 200, got {response.status_code if response else 'No response'}")
 
     def test_profile_endpoints(self):
         """Test profile management endpoints"""
@@ -468,7 +489,276 @@ class FridgeToTableAPITester:
         else:
             self.log_test("GET /notifications/expiring", False, f"Expected 200, got {response.status_code if response else 'No response'}")
 
+    def test_cart_endpoints(self):
+        """Test grocery cart endpoints (NEW FEATURE)"""
+        print("\n🛒 Testing Grocery Cart Endpoints...")
+        
+        # Test GET /cart (should be empty initially)
+        response = self.make_request('GET', 'cart')
+        if response and response.status_code == 200:
+            try:
+                cart_data = response.json()
+                required_fields = ['items', 'subtotal', 'service_fee', 'total', 'item_count']
+                if all(field in cart_data for field in required_fields):
+                    self.log_test("GET /cart", True)
+                    print(f"   Cart has {cart_data.get('item_count', 0)} items, total: ${cart_data.get('total', 0):.2f}")
+                else:
+                    self.log_test("GET /cart", False, f"Missing required fields: {required_fields}")
+            except:
+                self.log_test("GET /cart", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /cart", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test POST /cart/add (add single item)
+        test_item = {
+            "name": "Test Chicken Breast",
+            "category": "protein",
+            "estimated_price": 8.99
+        }
+        
+        response = self.make_request('POST', 'cart/add', data=test_item)
+        if response and response.status_code == 200:
+            try:
+                added_item = response.json()
+                if 'cart_item_id' in added_item and added_item.get('name') == test_item['name']:
+                    self.log_test("POST /cart/add", True)
+                    self.test_cart_item_id = added_item['cart_item_id']
+                else:
+                    self.log_test("POST /cart/add", False, "Missing cart_item_id or name mismatch")
+            except:
+                self.log_test("POST /cart/add", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /cart/add", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test POST /cart/add-bulk (add multiple items)
+        if hasattr(self, 'test_suggestions') and self.test_suggestions:
+            bulk_items = {
+                "items": [
+                    {
+                        "name": item.get('name', 'Unknown Item'),
+                        "category": item.get('category', 'other'),
+                        "estimated_price": item.get('estimated_price', 0)
+                    } for item in self.test_suggestions
+                ]
+            }
+        else:
+            # Fallback if no suggestions available
+            bulk_items = {
+                "items": [
+                    {"name": "Tomatoes", "category": "vegetable", "estimated_price": 3.49},
+                    {"name": "Bread", "category": "grain", "estimated_price": 2.99}
+                ]
+            }
+        
+        response = self.make_request('POST', 'cart/add-bulk', data=bulk_items)
+        if response and response.status_code == 200:
+            try:
+                result = response.json()
+                expected_count = len(bulk_items['items'])
+                if result.get('count') == expected_count:
+                    self.log_test("POST /cart/add-bulk", True)
+                    print(f"   Added {expected_count} items to cart")
+                else:
+                    self.log_test("POST /cart/add-bulk", False, f"Expected count {expected_count}, got {result.get('count')}")
+            except:
+                self.log_test("POST /cart/add-bulk", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /cart/add-bulk", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test GET /cart again (should have items now)
+        response = self.make_request('GET', 'cart')
+        if response and response.status_code == 200:
+            try:
+                cart_data = response.json()
+                if cart_data.get('item_count', 0) > 0:
+                    self.log_test("GET /cart (with items)", True)
+                    print(f"   Cart now has {cart_data.get('item_count', 0)} items, subtotal: ${cart_data.get('subtotal', 0):.2f}, total: ${cart_data.get('total', 0):.2f}")
+                    # Verify service fee calculation
+                    expected_total = cart_data.get('subtotal', 0) + cart_data.get('service_fee', 0)
+                    if abs(cart_data.get('total', 0) - expected_total) < 0.01:
+                        self.log_test("Cart total calculation", True)
+                    else:
+                        self.log_test("Cart total calculation", False, f"Expected {expected_total:.2f}, got {cart_data.get('total', 0):.2f}")
+                else:
+                    self.log_test("GET /cart (with items)", False, "Cart should have items but is empty")
+            except:
+                self.log_test("GET /cart (with items)", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /cart (with items)", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test DELETE /cart/{cart_item_id} (remove single item)
+        if hasattr(self, 'test_cart_item_id'):
+            response = self.make_request('DELETE', f'cart/{self.test_cart_item_id}')
+            if response and response.status_code == 200:
+                self.log_test("DELETE /cart/{cart_item_id}", True)
+            else:
+                self.log_test("DELETE /cart/{cart_item_id}", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test DELETE /cart (clear entire cart)
+        response = self.make_request('DELETE', 'cart')
+        if response and response.status_code == 200:
+            self.log_test("DELETE /cart (clear all)", True)
+        else:
+            self.log_test("DELETE /cart (clear all)", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+
+    def test_store_endpoints(self):
+        """Test store listing endpoints (NEW FEATURE)"""
+        print("\n🏪 Testing Store Endpoints...")
+        
+        response = self.make_request('GET', 'stores')
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if 'stores' in data and len(data['stores']) > 0:
+                    stores = data['stores']
+                    expected_stores = ['instacart', 'walmart', 'shoprite', 'amazon_fresh', 'target']
+                    store_ids = [store.get('id') for store in stores]
+                    if all(store_id in store_ids for store_id in expected_stores):
+                        self.log_test("GET /stores", True)
+                        print(f"   Found {len(stores)} stores: {', '.join(store_ids)}")
+                    else:
+                        self.log_test("GET /stores", False, f"Missing expected stores. Found: {store_ids}")
+                else:
+                    self.log_test("GET /stores", False, "No stores in response")
+            except:
+                self.log_test("GET /stores", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /stores", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+
+    def test_checkout_endpoints(self):
+        """Test Stripe checkout endpoints (NEW FEATURE)"""
+        print("\n💳 Testing Stripe Checkout Endpoints...")
+        
+        # First add some items to cart for checkout testing
+        test_items = [
+            {"name": "Test Item 1", "category": "protein", "estimated_price": 5.99},
+            {"name": "Test Item 2", "category": "vegetable", "estimated_price": 3.49}
+        ]
+        
+        for item in test_items:
+            response = self.make_request('POST', 'cart/add', data=item)
+            if not (response and response.status_code == 200):
+                print(f"   ⚠️ Failed to add test item for checkout: {item['name']}")
+        
+        # Test POST /cart/checkout (create Stripe session)
+        checkout_data = {
+            "origin_url": "https://fridge-to-table-25.preview.emergentagent.com",
+            "store_id": "instacart"
+        }
+        
+        response = self.make_request('POST', 'cart/checkout', data=checkout_data)
+        session_id = None
+        if response and response.status_code == 200:
+            try:
+                result = response.json()
+                if 'url' in result and 'session_id' in result:
+                    session_id = result['session_id']
+                    self.log_test("POST /cart/checkout", True)
+                    print(f"   Created Stripe session: {session_id}")
+                    print(f"   Checkout URL: {result['url'][:50]}...")
+                else:
+                    self.log_test("POST /cart/checkout", False, "Missing url or session_id in response")
+            except:
+                self.log_test("POST /cart/checkout", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /cart/checkout", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test GET /cart/checkout/status/{session_id}
+        if session_id:
+            response = self.make_request('GET', f'cart/checkout/status/{session_id}')
+            if response and response.status_code == 200:
+                try:
+                    status_data = response.json()
+                    required_fields = ['status', 'payment_status']
+                    if all(field in status_data for field in required_fields):
+                        self.log_test("GET /cart/checkout/status/{session_id}", True)
+                        print(f"   Payment status: {status_data.get('payment_status')}, Session status: {status_data.get('status')}")
+                    else:
+                        self.log_test("GET /cart/checkout/status/{session_id}", False, f"Missing required fields: {required_fields}")
+                except:
+                    self.log_test("GET /cart/checkout/status/{session_id}", False, "Invalid JSON response")
+            else:
+                self.log_test("GET /cart/checkout/status/{session_id}", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Clean up - clear cart
+        self.make_request('DELETE', 'cart')
+
     def test_meal_plan_endpoints(self):
+        """Test meal planner endpoints (NEW FEATURE)"""
+        print("\n📅 Testing Meal Planner Endpoints...")
+        
+        # Test GET meal plan
+        response = self.make_request('GET', 'mealplan')
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                self.log_test("GET /mealplan", True)
+                print(f"   Found {len(data) if isinstance(data, list) else 'unknown'} meal plan entries")
+            except:
+                self.log_test("GET /mealplan", False, "Invalid JSON response")
+        else:
+            self.log_test("GET /mealplan", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test POST meal plan entry
+        meal_entry = {
+            "day": "Monday",
+            "meal_type": "breakfast", 
+            "recipe": {
+                "title": "Test Breakfast",
+                "description": "A test meal for API testing",
+                "total_time": 15,
+                "calories_per_serving": 300,
+                "ingredients_used": ["eggs", "bread"],
+                "ingredients_needed": [],
+                "instructions": ["Cook eggs", "Toast bread"]
+            }
+        }
+        
+        response = self.make_request('POST', 'mealplan', meal_entry)
+        entry_id = None
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if 'entry_id' in data:
+                    entry_id = data['entry_id']
+                    self.log_test("POST /mealplan", True)
+                else:
+                    self.log_test("POST /mealplan", False, "Missing entry_id in response")
+            except:
+                self.log_test("POST /mealplan", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /mealplan", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test DELETE specific meal plan entry
+        if entry_id:
+            response = self.make_request('DELETE', f'mealplan/{entry_id}')
+            if response and response.status_code == 200:
+                self.log_test("DELETE /mealplan/{entry_id}", True)
+            else:
+                self.log_test("DELETE /mealplan/{entry_id}", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test DELETE all meal plan entries
+        response = self.make_request('DELETE', 'mealplan')
+        if response and response.status_code == 200:
+            self.log_test("DELETE /mealplan (clear all)", True)
+        else:
+            self.log_test("DELETE /mealplan (clear all)", False, f"Expected 200, got {response.status_code if response else 'No response'}")
+        
+        # Test AI meal plan generation (this is slow)
+        print("   🤖 Testing AI meal plan generation (may take 15-30 seconds)...")
+        response = self.make_request('POST', 'mealplan/generate', {"days": ["Monday", "Tuesday"]}, timeout=45)
+        if response and response.status_code == 200:
+            try:
+                data = response.json()
+                if 'meal_plan' in data:
+                    self.log_test("POST /mealplan/generate", True)
+                    print(f"   Generated meal plan with {len(data.get('shopping_list', []))} shopping items")
+                else:
+                    self.log_test("POST /mealplan/generate", False, f"Missing meal_plan field: {data}")
+            except:
+                self.log_test("POST /mealplan/generate", False, "Invalid JSON response")
+        else:
+            self.log_test("POST /mealplan/generate", False, f"Expected 200, got {response.status_code if response else 'No response'}")
         """Test meal planner endpoints (NEW FEATURE)"""
         print("\n📅 Testing Meal Planner Endpoints...")
         
@@ -568,6 +858,11 @@ class FridgeToTableAPITester:
         self.test_barcode_endpoints()
         self.test_notification_endpoints()
         self.test_meal_plan_endpoints()
+        
+        # GROCERY CART & CHECKOUT FEATURES (NEWEST)
+        self.test_cart_endpoints()
+        self.test_store_endpoints()
+        self.test_checkout_endpoints()
         
         # Print summary
         print(f"\n📊 Test Summary:")
