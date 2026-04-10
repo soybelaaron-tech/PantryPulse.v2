@@ -3,34 +3,41 @@
 ## Problem Statement
 People have ingredients at home but no idea what to make. This app combines real recipe accuracy with AI creativity.
 
-## Features Implemented (Apr 10, 2026)
-### Core (Phase 1)
+## Features Implemented
+### Core (Phase 1 - Apr 10, 2026)
 - Google OAuth (Emergent Auth)
-- AI Recipe Generation (GPT-5.2) with filters: time, budget, skill, dietary, servings, calories, cuisine, meal type
+- AI Recipe Generation (GPT-5.2) with filters
 - Quick-add common ingredient buttons (7 categories, 80+ ingredients)
 - Pantry Tracker with categories, expiry dates, search/filter
-- Photo scanning (AI vision)
-- Receipt scanning (AI vision)
-- Smart Grocery Suggestions (AI)
-- Saved Recipes management
-- User Profile with allergies, dietary preferences, skill level, calorie targets
-- Dashboard with bento grid
+- Photo/Receipt scanning (AI vision)
+- Smart Grocery Suggestions
+- Saved Recipes, User Profile
 
 ### Phase 2 (Apr 10, 2026)
-- **Barcode scanning via camera** - html5-qrcode library + Open Food Facts API lookup + manual entry
-- **Expiry notification system** - Notification bell in navbar, in-app dropdown, browser push notifications, auto-polling every 5 min
-- **Weekly meal planner** - AI-generated 7-day plans (breakfast/lunch/dinner), weekly calendar view, shopping list for plan, save meals to favorites, mobile day-by-day navigation
+- Barcode scanning via camera (html5-qrcode + Open Food Facts)
+- Expiry notification system (bell + browser push)
+- Weekly meal planner (AI-generated 7-day plans)
+
+### Phase 3 (Apr 10, 2026) - Monetization
+- **Grocery Cart System** — Add AI-suggested items to cart with estimated prices
+- **Stripe Checkout** — $2.50 flat service fee per order
+- **Store Integration** — Deep links to Instacart, Walmart, ShopRite, Amazon Fresh, Target
+- **Auto-Pantry Add** — After payment, cart items auto-added to pantry inventory
+- Payment transactions tracked in `payment_transactions` collection
+
+## Revenue Model
+- $2.50 service fee per grocery order
+- Value prop: AI-curated shopping list + one-click store redirect
 
 ## Architecture
-- Backend: FastAPI + MongoDB + emergentintegrations + Open Food Facts API
-- Frontend: React + Tailwind + Shadcn/UI + Framer Motion + Phosphor Icons + html5-qrcode
+- Backend: FastAPI + MongoDB + emergentintegrations + Stripe + Open Food Facts
+- Frontend: React + Tailwind + Shadcn/UI + Framer Motion + html5-qrcode
 - AI: OpenAI GPT-5.2 via Emergent LLM Key
-- Storage: Emergent Object Storage
-- Auth: Emergent Google OAuth
+- Payments: Stripe via emergentintegrations
 
 ## Backlog
 - P2: Recipe sharing / social features
 - P2: Cooking timers within recipe view
-- P3: Taste learning / personalized recommendations over time
+- P3: Taste learning / personalized recommendations
 - P3: Leftover transformation mode
-- P3: Export meal plan as PDF / share
+- P3: Export meal plan as PDF
