@@ -1,44 +1,36 @@
 # Pantry Pulse - AI-Powered Recipe Generator
 
 ## Problem Statement
-People have ingredients at home but no idea what to make. Existing tools show recipes that don't match or generate generic AI dishes. This leads to wasted food, repetitive meals, and frustration.
+People have ingredients at home but no idea what to make. This app combines real recipe accuracy with AI creativity.
 
-## Target Audience
-- College students (budget-conscious, limited skills)
-- Young professionals (want variety, learning to cook)
-- Home cooks (reduce waste, try new things)
-
-## Core Features Implemented (Apr 10, 2026)
-- Google OAuth (Emergent Auth) for user accounts
-- AI Recipe Generation (OpenAI GPT-5.2) with filters: time, budget, skill, dietary, servings, calories, cuisine, meal type
-- Quick-add common ingredient buttons (categorized: Proteins, Vegetables, Fruits, Dairy, Grains, Pantry Staples, Spices)
+## Features Implemented (Apr 10, 2026)
+### Core (Phase 1)
+- Google OAuth (Emergent Auth)
+- AI Recipe Generation (GPT-5.2) with filters: time, budget, skill, dietary, servings, calories, cuisine, meal type
+- Quick-add common ingredient buttons (7 categories, 80+ ingredients)
 - Pantry Tracker with categories, expiry dates, search/filter
-- Photo scanning (AI vision identifies food items)
-- Receipt scanning (AI reads grocery receipts)
-- Smart Grocery Suggestions (AI-powered)
+- Photo scanning (AI vision)
+- Receipt scanning (AI vision)
+- Smart Grocery Suggestions (AI)
 - Saved Recipes management
 - User Profile with allergies, dietary preferences, skill level, calorie targets
-- Dashboard with bento grid, expiring soon alerts, quick actions
-- Responsive design with Organic & Earthy theme
+- Dashboard with bento grid
+
+### Phase 2 (Apr 10, 2026)
+- **Barcode scanning via camera** - html5-qrcode library + Open Food Facts API lookup + manual entry
+- **Expiry notification system** - Notification bell in navbar, in-app dropdown, browser push notifications, auto-polling every 5 min
+- **Weekly meal planner** - AI-generated 7-day plans (breakfast/lunch/dinner), weekly calendar view, shopping list for plan, save meals to favorites, mobile day-by-day navigation
 
 ## Architecture
-- Backend: FastAPI + MongoDB (motor) + emergentintegrations
-- Frontend: React + Tailwind + Shadcn/UI + Framer Motion + Phosphor Icons
+- Backend: FastAPI + MongoDB + emergentintegrations + Open Food Facts API
+- Frontend: React + Tailwind + Shadcn/UI + Framer Motion + Phosphor Icons + html5-qrcode
 - AI: OpenAI GPT-5.2 via Emergent LLM Key
-- Storage: Emergent Object Storage for photo uploads
-- Auth: Emergent-managed Google OAuth
-
-## What's Been Implemented
-- Full backend with 15+ API endpoints
-- 9 frontend pages (Landing, Dashboard, Pantry, Recipes, Saved, Scanner, Grocery, Profile, AuthCallback)
-- Navbar with responsive mobile menu
-- All AI features connected (recipe gen, photo scan, receipt scan, grocery suggestions)
+- Storage: Emergent Object Storage
+- Auth: Emergent Google OAuth
 
 ## Backlog
-- P1: Meal planning / weekly planner
-- P1: Expiration date notifications/reminders
 - P2: Recipe sharing / social features
-- P2: Barcode scanning (camera-based)
 - P2: Cooking timers within recipe view
 - P3: Taste learning / personalized recommendations over time
 - P3: Leftover transformation mode
+- P3: Export meal plan as PDF / share
