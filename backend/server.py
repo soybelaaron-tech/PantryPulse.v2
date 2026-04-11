@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import json
 import uuid
 import base64
 import requests
@@ -60,6 +61,158 @@ def get_object(path: str):
     resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
     resp.raise_for_status()
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+# ========== HELPER FUNCTIONS ==========
+def parse_ai_json(response_text: str):
+    """Parse AI response that may contain markdown code fences."""
+    clean = response_text.strip()
+    if clean.startswith("```"):
+        clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
+        if clean.endswith("```"):
+            clean = clean[:-3]
+        clean = clean.strip()
+    return json.loads(clean)
+
+
+def build_recipe_filters(req, user: dict) -> str:
+    """Build filter string from recipe request and user profile."""
+    filter_map = {
+        req.max_time: lambda v: f"Must be ready in under {v} minutes.",
+        req.budget: lambda v: f"Budget level: {v}.",
+        req.skill_level: lambda v: f"Skill level: {v}.",
+        req.calorie_target: lambda v: f"Target around {v} calories per serving.",
+        req.cuisine: lambda v: f"Cuisine preference: {v}.",
+        req.meal_type: lambda v: f"Meal type: {v}.",
+    }
+    filters = [fn(val) for val, fn in filter_map.items() if val]
+    if req.dietary_restrictions:
+        filters.append(f"Dietary restrictions: {', '.join(req.dietary_restrictions)}.")
+    user_allergies = user.get("allergies", [])
+    if user_allergies:
+        filters.append(f"User is allergic to: {', '.join(user_allergies)}. AVOID these completely.")
+    user_dietary = user.get("dietary_preferences", [])
+    if user_dietary:
+        filters.append(f"User dietary preferences: {', '.join(user_dietary)}.")
+    return "\n".join(filters) if filters else "No special filters."
+
+
+def build_user_constraints(user: dict) -> str:
+    """Build constraint string from user profile for meal planning."""
+    constraints = []
+    allergies = user.get("allergies", [])
+    dietary = user.get("dietary_preferences", [])
+    cal_target = user.get("calorie_target")
+    if allergies:
+        constraints.append(f"Allergies (AVOID completely): {', '.join(allergies)}")
+    if dietary:
+        constraints.append(f"Dietary preferences: {', '.join(dietary)}")
+    if cal_target:
+        constraints.append(f"Target ~{cal_target} calories per day")
+    return "\n".join(constraints) if constraints else "No special constraints."
+
+
+def parse_expiry_date(date_str: str) -> Optional[datetime]:
+    """Safely parse an expiry date string to datetime."""
+    try:
+        exp = datetime.fromisoformat(date_str)
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        return exp
+    except (ValueError, TypeError):
+        return None
+
+
+def classify_expiry(item: dict, days_left: int) -> Optional[dict]:
+    """Classify an item's expiry urgency and build notification dict."""
+    name = item["name"]
+    if days_left < 0:
+        return {**item, "days_left": days_left, "urgency": "expired", "message": f"{name} has expired!"}
+    if days_left == 0:
+        return {**item, "days_left": 0, "urgency": "today", "message": f"{name} expires today!"}
+    if days_left <= 2:
+        return {**item, "days_left": days_left, "urgency": "critical", "message": f"{name} expires in {days_left} day{'s' if days_left > 1 else ''}!"}
+    if days_left <= 5:
+        return {**item, "days_left": days_left, "urgency": "warning", "message": f"{name} expires in {days_left} days"}
+    return None
+
+
+def find_pantry_match(ing_name: str, pantry: list) -> Optional[dict]:
+    """Find a pantry item matching ingredient name (exact then partial, case-insensitive)."""
+    lower = ing_name.lower()
+    for item in pantry:
+        if item["name"].lower() == lower:
+            return item
+    for item in pantry:
+        if lower in item["name"].lower() or item["name"].lower() in lower:
+            return item
+    return None
+
+
+BARCODE_CATEGORY_MAP = {
+    "meat": "protein", "fish": "protein", "chicken": "protein", "beef": "protein", "pork": "protein",
+    "milk": "dairy", "cheese": "dairy", "yogurt": "dairy", "butter": "dairy", "cream": "dairy",
+    "vegetable": "vegetable", "salad": "vegetable", "tomato": "vegetable",
+    "fruit": "fruit", "apple": "fruit", "banana": "fruit", "berry": "fruit", "orange": "fruit",
+    "bread": "grain", "pasta": "grain", "rice": "grain", "cereal": "grain", "flour": "grain",
+    "spice": "spice", "herb": "spice", "pepper": "spice",
+    "sauce": "condiment", "ketchup": "condiment", "mustard": "condiment", "dressing": "condiment",
+    "beverage": "beverage", "juice": "beverage", "soda": "beverage", "water": "beverage", "coffee": "beverage", "tea": "beverage",
+    "snack": "snack", "chip": "snack", "cookie": "snack", "candy": "snack", "chocolate": "snack",
+}
+
+
+def classify_barcode_category(categories_tags: list) -> str:
+    """Map Open Food Facts category tags to our categories."""
+    cat_str = " ".join(categories_tags).lower()
+    for keyword, cat_val in BARCODE_CATEGORY_MAP.items():
+        if keyword in cat_str:
+            return cat_val
+    return "other"
+
+
+async def create_llm_chat(session_prefix: str, system_message: str):
+    """Create and configure an LLM chat instance."""
+    from emergentintegrations.llm.chat import LlmChat
+    chat = LlmChat(
+        api_key=EMERGENT_KEY,
+        session_id=f"{session_prefix}_{uuid.uuid4().hex[:8]}",
+        system_message=system_message
+    )
+    chat.with_model("openai", "gpt-5.2")
+    return chat
+
+
+async def get_or_create_user(email, name, picture):
+    """Find existing user or create a new one. Returns user_id."""
+    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing_user:
+        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture}})
+        return existing_user["user_id"]
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    await db.users.insert_one({
+        "user_id": user_id, "email": email, "name": name, "picture": picture,
+        "allergies": [], "dietary_preferences": [], "skill_level": "beginner",
+        "default_servings": 2, "calorie_target": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+    return user_id
+
+
+async def save_meal_plan_entries(uid: str, meal_plan: list):
+    """Persist AI-generated meal plan entries to DB."""
+    await db.meal_plans.delete_many({"user_id": uid})
+    for day_plan in meal_plan:
+        for meal in day_plan.get("meals", []):
+            doc = {
+                "entry_id": f"meal_{uuid.uuid4().hex[:12]}",
+                "user_id": uid,
+                "day": day_plan["day"],
+                "meal_type": meal.get("meal_type", ""),
+                "recipe": meal,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.meal_plans.insert_one(doc)
+
 
 # ========== MODELS ==========
 class UserProfile(BaseModel):
@@ -148,42 +301,16 @@ async def exchange_session(request: Request, response: Response):
     except Exception as e:
         logger.error(f"Auth error: {e}")
         raise HTTPException(status_code=401, detail="Authentication failed")
-    email = data.get("email")
-    name = data.get("name")
-    picture = data.get("picture")
+    email, name, picture = data.get("email"), data.get("name"), data.get("picture")
     session_token = data.get("session_token")
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
-    if existing_user:
-        user_id = existing_user["user_id"]
-        await db.users.update_one({"email": email}, {"$set": {"name": name, "picture": picture}})
-    else:
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        await db.users.insert_one({
-            "user_id": user_id,
-            "email": email,
-            "name": name,
-            "picture": picture,
-            "allergies": [],
-            "dietary_preferences": [],
-            "skill_level": "beginner",
-            "default_servings": 2,
-            "calorie_target": None,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        })
+    user_id = await get_or_create_user(email, name, picture)
     await db.user_sessions.insert_one({
-        "user_id": user_id,
-        "session_token": session_token,
+        "user_id": user_id, "session_token": session_token,
         "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat()
     })
-    resp = JSONResponse(content={
-        "user_id": user_id, "email": email, "name": name, "picture": picture
-    })
-    resp.set_cookie(
-        key="session_token", value=session_token,
-        httponly=True, secure=True, samesite="none",
-        path="/", max_age=7*24*60*60
-    )
+    resp = JSONResponse(content={"user_id": user_id, "email": email, "name": name, "picture": picture})
+    resp.set_cookie(key="session_token", value=session_token, httponly=True, secure=True, samesite="none", path="/", max_age=7*24*60*60)
     return resp
 
 @api_router.get("/auth/me")
@@ -274,30 +401,9 @@ async def delete_pantry_item(item_id: str, request: Request):
 @api_router.post("/recipes/generate")
 async def generate_recipes(req: RecipeGenerateRequest, request: Request):
     user = await get_current_user(request)
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    from emergentintegrations.llm.chat import UserMessage
     ingredients_str = ", ".join(req.ingredients) if req.ingredients else "whatever is available"
-    filters = []
-    if req.max_time:
-        filters.append(f"Must be ready in under {req.max_time} minutes.")
-    if req.budget:
-        filters.append(f"Budget level: {req.budget}.")
-    if req.skill_level:
-        filters.append(f"Skill level: {req.skill_level}.")
-    if req.dietary_restrictions:
-        filters.append(f"Dietary restrictions: {', '.join(req.dietary_restrictions)}.")
-    if req.calorie_target:
-        filters.append(f"Target around {req.calorie_target} calories per serving.")
-    if req.cuisine:
-        filters.append(f"Cuisine preference: {req.cuisine}.")
-    if req.meal_type:
-        filters.append(f"Meal type: {req.meal_type}.")
-    user_allergies = user.get("allergies", [])
-    if user_allergies:
-        filters.append(f"User is allergic to: {', '.join(user_allergies)}. AVOID these completely.")
-    user_dietary = user.get("dietary_preferences", [])
-    if user_dietary:
-        filters.append(f"User dietary preferences: {', '.join(user_dietary)}.")
-    filters_str = "\n".join(filters) if filters else "No special filters."
+    filters_str = build_recipe_filters(req, user)
     prompt = f"""Generate exactly 3 recipes using these ingredients: {ingredients_str}
 
 Servings: {req.servings}
@@ -328,23 +434,10 @@ For each recipe, respond in this exact JSON format (no markdown, no extra text):
 
 Be creative but practical. Use real cooking techniques. If some ingredients are missing, suggest minimal additions."""
 
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"recipe_{uuid.uuid4().hex[:8]}",
-        system_message="You are a world-class chef and recipe creator. Generate practical, delicious recipes. Always respond with valid JSON only, no markdown formatting."
-    )
-    chat.with_model("openai", "gpt-5.2")
-    user_msg = UserMessage(text=prompt)
-    response = await chat.send_message(user_msg)
-    import json
+    chat = await create_llm_chat("recipe", "You are a world-class chef and recipe creator. Generate practical, delicious recipes. Always respond with valid JSON only, no markdown formatting.")
+    response = await chat.send_message(UserMessage(text=prompt))
     try:
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-        recipes = json.loads(clean)
+        recipes = parse_ai_json(response)
     except json.JSONDecodeError:
         logger.error(f"Failed to parse recipe JSON: {response[:200]}")
         recipes = [{"title": "AI Generated Recipe", "description": response[:200], "instructions": [response], "ingredients_used": req.ingredients, "ingredients_needed": [], "total_time": 30, "servings": req.servings, "difficulty": "medium", "calories_per_serving": 0, "tips": "", "cuisine": "", "meal_type": "", "tags": [], "prep_time": 0, "cook_time": 0}]
@@ -389,21 +482,9 @@ async def cook_recipe(request: Request):
         return {"removed": [], "not_found": [], "message": "No ingredients to deduct"}
     uid = user["user_id"]
     pantry = await db.pantry_items.find({"user_id": uid}, {"_id": 0}).to_list(500)
-    removed = []
-    not_found = []
+    removed, not_found = [], []
     for ing_name in ingredients_used:
-        # Case-insensitive match
-        match = None
-        for item in pantry:
-            if item["name"].lower() == ing_name.lower():
-                match = item
-                break
-        if not match:
-            # Try partial match
-            for item in pantry:
-                if ing_name.lower() in item["name"].lower() or item["name"].lower() in ing_name.lower():
-                    match = item
-                    break
+        match = find_pantry_match(ing_name, pantry)
         if match:
             await db.pantry_items.delete_one({"item_id": match["item_id"], "user_id": uid})
             pantry = [p for p in pantry if p["item_id"] != match["item_id"]]
@@ -416,7 +497,7 @@ async def cook_recipe(request: Request):
 @api_router.post("/scan/photo")
 async def scan_photo(request: Request, file: UploadFile = File(...)):
     user = await get_current_user(request)
-    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    from emergentintegrations.llm.chat import UserMessage, ImageContent
     data = await file.read()
     b64 = base64.b64encode(data).decode("utf-8")
     ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
@@ -425,13 +506,7 @@ async def scan_photo(request: Request, file: UploadFile = File(...)):
         put_object(storage_path, data, file.content_type or "image/jpeg")
     except Exception as e:
         logger.warning(f"Storage upload failed: {e}")
-    image_content = ImageContent(image_base64=b64)
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"scan_{uuid.uuid4().hex[:8]}",
-        system_message="You are a food identification expert. Identify food items and ingredients from images. Always respond with valid JSON only."
-    )
-    chat.with_model("openai", "gpt-5.2")
+    chat = await create_llm_chat("scan", "You are a food identification expert. Identify food items and ingredients from images. Always respond with valid JSON only.")
     user_msg = UserMessage(
         text="""Identify all food items and ingredients visible in this image.
 Respond in this exact JSON format:
@@ -441,35 +516,21 @@ Respond in this exact JSON format:
   ],
   "confidence": "high/medium/low"
 }""",
-        file_contents=[image_content]
+        file_contents=[ImageContent(image_base64=b64)]
     )
     response = await chat.send_message(user_msg)
-    import json
     try:
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-        result = json.loads(clean)
+        return parse_ai_json(response)
     except json.JSONDecodeError:
-        result = {"items": [], "confidence": "low", "raw": response[:300]}
-    return result
+        return {"items": [], "confidence": "low", "raw": response[:300]}
 
 @api_router.post("/scan/receipt")
 async def scan_receipt(request: Request, file: UploadFile = File(...)):
     user = await get_current_user(request)
-    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    from emergentintegrations.llm.chat import UserMessage, ImageContent
     data = await file.read()
     b64 = base64.b64encode(data).decode("utf-8")
-    image_content = ImageContent(image_base64=b64)
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"receipt_{uuid.uuid4().hex[:8]}",
-        system_message="You are a receipt reading expert. Extract food items from grocery receipts. Always respond with valid JSON only."
-    )
-    chat.with_model("openai", "gpt-5.2")
+    chat = await create_llm_chat("receipt", "You are a receipt reading expert. Extract food items from grocery receipts. Always respond with valid JSON only.")
     user_msg = UserMessage(
         text="""Read this grocery receipt and extract all food items.
 Respond in this exact JSON format:
@@ -480,21 +541,13 @@ Respond in this exact JSON format:
   "store_name": "store name or null",
   "total": "total amount or null"
 }""",
-        file_contents=[image_content]
+        file_contents=[ImageContent(image_base64=b64)]
     )
     response = await chat.send_message(user_msg)
-    import json
     try:
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-        result = json.loads(clean)
+        return parse_ai_json(response)
     except json.JSONDecodeError:
-        result = {"items": [], "store_name": None, "total": None, "raw": response[:300]}
-    return result
+        return {"items": [], "store_name": None, "total": None, "raw": response[:300]}
 
 # ========== GROCERY SUGGESTIONS ==========
 @api_router.post("/grocery/suggestions")
