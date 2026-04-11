@@ -379,6 +379,39 @@ async def delete_saved_recipe(saved_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Recipe not found")
     return {"message": "Deleted"}
 
+# ========== COOK RECIPE (DEDUCT INGREDIENTS) ==========
+@api_router.post("/recipes/cook")
+async def cook_recipe(request: Request):
+    user = await get_current_user(request)
+    body = await request.json()
+    ingredients_used = body.get("ingredients_used", [])
+    if not ingredients_used:
+        return {"removed": [], "not_found": [], "message": "No ingredients to deduct"}
+    uid = user["user_id"]
+    pantry = await db.pantry_items.find({"user_id": uid}, {"_id": 0}).to_list(500)
+    removed = []
+    not_found = []
+    for ing_name in ingredients_used:
+        # Case-insensitive match
+        match = None
+        for item in pantry:
+            if item["name"].lower() == ing_name.lower():
+                match = item
+                break
+        if not match:
+            # Try partial match
+            for item in pantry:
+                if ing_name.lower() in item["name"].lower() or item["name"].lower() in ing_name.lower():
+                    match = item
+                    break
+        if match:
+            await db.pantry_items.delete_one({"item_id": match["item_id"], "user_id": uid})
+            pantry = [p for p in pantry if p["item_id"] != match["item_id"]]
+            removed.append(match["name"])
+        else:
+            not_found.append(ing_name)
+    return {"removed": removed, "not_found": not_found, "message": f"Removed {len(removed)} items from pantry"}
+
 # ========== SCAN ROUTES ==========
 @api_router.post("/scan/photo")
 async def scan_photo(request: Request, file: UploadFile = File(...)):

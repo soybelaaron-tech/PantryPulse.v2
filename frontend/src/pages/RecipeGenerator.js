@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
-import { CookingPot, Timer, Fire, Users, Sparkle, X, Plus, BookmarkSimple, FunnelSimple } from '@phosphor-icons/react';
+import { CookingPot, Timer, Fire, Users, Sparkle, X, Plus, BookmarkSimple, FunnelSimple, Knife } from '@phosphor-icons/react';
 import Navbar from '../components/Navbar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Slider } from '../components/ui/slider';
@@ -30,6 +30,7 @@ export default function RecipeGenerator() {
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expandedRecipe, setExpandedRecipe] = useState(null);
+  const [cookedRecipes, setCookedRecipes] = useState(new Set());
 
   const [showFilters, setShowFilters] = useState(false);
   const [maxTime, setMaxTime] = useState([60]);
@@ -103,6 +104,27 @@ export default function RecipeGenerator() {
       toast.success('Recipe saved!');
     } catch (e) {
       toast.error('Failed to save recipe');
+    }
+  };
+
+  const cookRecipe = async (recipe) => {
+    const usedIngredients = recipe.ingredients_used || [];
+    if (usedIngredients.length === 0) {
+      toast.info('No pantry ingredients to deduct');
+      return;
+    }
+    try {
+      const res = await axios.post(`${API}/recipes/cook`, { ingredients_used: usedIngredients }, { withCredentials: true });
+      const { removed, not_found } = res.data;
+      setCookedRecipes(new Set([...cookedRecipes, recipe.recipe_id]));
+      if (removed.length > 0) {
+        toast.success(`Cooking! Removed ${removed.length} ingredient${removed.length > 1 ? 's' : ''} from pantry`);
+      }
+      if (not_found.length > 0) {
+        toast.info(`${not_found.length} ingredient${not_found.length > 1 ? 's were' : ' was'} not in your pantry`);
+      }
+    } catch (e) {
+      toast.error('Failed to update pantry');
     }
   };
 
@@ -332,13 +354,31 @@ export default function RecipeGenerator() {
                         <h3 className="font-heading font-bold text-xl text-[#2D3728]">{recipe.title}</h3>
                         <p className="text-[#5C6B54] text-sm font-body mt-1">{recipe.description}</p>
                       </div>
-                      <button
-                        data-testid={`save-recipe-${i}`}
-                        onClick={() => saveRecipe(recipe)}
-                        className="p-2 rounded-xl hover:bg-[#E8ECE1] text-[#2C5545] transition-colors"
-                      >
-                        <BookmarkSimple size={22} weight="duotone" />
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          data-testid={`cook-recipe-${i}`}
+                          onClick={() => cookRecipe(recipe)}
+                          disabled={cookedRecipes.has(recipe.recipe_id)}
+                          className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors inline-flex items-center gap-1.5 ${
+                            cookedRecipes.has(recipe.recipe_id)
+                              ? 'bg-green-50 text-green-700'
+                              : 'bg-[#CC5500] text-white hover:bg-[#E66000]'
+                          }`}
+                        >
+                          {cookedRecipes.has(recipe.recipe_id) ? (
+                            <><Knife size={16} /> Cooked!</>
+                          ) : (
+                            <><Knife size={16} /> Cook This</>
+                          )}
+                        </button>
+                        <button
+                          data-testid={`save-recipe-${i}`}
+                          onClick={() => saveRecipe(recipe)}
+                          className="p-2 rounded-xl hover:bg-[#E8ECE1] text-[#2C5545] transition-colors"
+                        >
+                          <BookmarkSimple size={22} weight="duotone" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex flex-wrap gap-3 mb-4">
