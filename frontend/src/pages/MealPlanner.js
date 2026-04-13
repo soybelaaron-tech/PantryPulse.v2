@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { CalendarBlank, Sparkle, Trash, Timer, Fire, ShoppingCart, CaretLeft, CaretRight, BookmarkSimple } from '@phosphor-icons/react';
@@ -26,15 +26,15 @@ export default function MealPlanner() {
 
   useEffect(() => {
     fetchMealPlan();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const fetchMealPlan = async () => {
+  const fetchMealPlan = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/mealplan`, { withCredentials: true });
       setMealPlan(res.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
-  };
+  }, []);
 
   const generatePlan = async () => {
     setGenerating(true);
@@ -305,7 +305,7 @@ export default function MealPlanner() {
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   {shoppingList.map((item, i) => (
-                    <span key={i} className="text-sm bg-orange-50 text-orange-700 px-3 py-1.5 rounded-full border border-orange-200">{item}</span>
+                    <span key={`shop-${item}`} className="text-sm bg-orange-50 text-orange-700 px-3 py-1.5 rounded-full border border-orange-200">{item}</span>
                   ))}
                 </div>
               </motion.div>

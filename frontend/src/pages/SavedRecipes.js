@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BookmarkSimple, Trash, Timer, Users, Fire } from '@phosphor-icons/react';
@@ -11,16 +11,15 @@ export default function SavedRecipes() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
 
-  useEffect(() => {
-    const fetch = async () => {
-      try {
-        const res = await axios.get(`${API}/recipes/saved`, { withCredentials: true });
-        setRecipes(res.data);
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    };
-    fetch();
+  const fetchRecipes = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/recipes/saved`, { withCredentials: true });
+      setRecipes(res.data);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }, []);
+
+  useEffect(() => { fetchRecipes(); }, [fetchRecipes]);
 
   const deleteRecipe = async (savedId) => {
     try {

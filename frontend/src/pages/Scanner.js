@@ -330,7 +330,7 @@ export default function Scanner() {
                 ) : photoResult?.items?.length > 0 ? (
                   <>
                     <button data-testid="add-all-photo-btn" onClick={() => addAllToPantry(photoResult.items)} className="mb-3 text-[#CC5500] text-sm font-medium hover:underline">+ Add all to pantry</button>
-                    {photoResult.items.map((item, i) => <ItemCard key={i} item={item} />)}
+                    {photoResult.items.map((item, i) => <ItemCard key={`photo-${item.name}-${i}`} item={item} />)}
                   </>
                 ) : (
                   <p className="text-[#5C6B54] font-body text-sm py-8 text-center">Upload a photo to see identified items here</p>
@@ -361,7 +361,7 @@ export default function Scanner() {
                   <>
                     {receiptResult.store_name && <p className="text-xs text-[#5C6B54] mb-2 font-body">Store: {receiptResult.store_name}</p>}
                     <button data-testid="add-all-receipt-btn" onClick={() => addAllToPantry(receiptResult.items)} className="mb-3 text-[#CC5500] text-sm font-medium hover:underline">+ Add all to pantry</button>
-                    {receiptResult.items.map((item, i) => <ItemCard key={i} item={item} />)}
+                    {receiptResult.items.map((item, i) => <ItemCard key={`receipt-${item.name}-${i}`} item={item} />)}
                     {receiptResult.total && (
                       <div className="mt-3 pt-3 border-t border-[#E2E0D8] flex justify-between text-sm font-body">
                         <span className="text-[#5C6B54]">Total</span>

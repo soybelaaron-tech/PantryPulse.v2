@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Trash, PencilSimple, FunnelSimple, MagnifyingGlass, X } from '@phosphor-icons/react';
@@ -38,7 +38,7 @@ export default function Pantry() {
   const [form, setForm] = useState({ name: '', category: 'other', quantity: '', unit: '', expiry_date: '', notes: '' });
   const [expiryDate, setExpiryDate] = useState(null);
 
-  const fetchItems = async () => {
+  const fetchItems = useCallback(async () => {
     try {
       const res = await axios.get(`${API}/pantry`, { withCredentials: true });
       setItems(res.data);
@@ -47,9 +47,9 @@ export default function Pantry() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchItems(); }, []);
+  useEffect(() => { fetchItems(); }, [fetchItems]);
 
   const handleAdd = async () => {
     if (!form.name.trim()) return;

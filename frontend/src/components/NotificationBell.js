@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { Bell, Warning, X, ArrowRight } from '@phosphor-icons/react';
 import { useNavigate } from 'react-router-dom';
@@ -12,11 +12,10 @@ export default function NotificationBell() {
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      try {
-        const res = await axios.get(`${API}/notifications/expiring`, { withCredentials: true });
-        const items = res.data.notifications || [];
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/notifications/expiring`, { withCredentials: true });
+      const items = res.data.notifications || [];
         setNotifications(items);
         if (items.length > 0) {
           setHasNew(true);
@@ -34,16 +33,16 @@ export default function NotificationBell() {
       } catch (e) {
         console.error('Notification fetch error:', e);
       }
-    };
+  }, []);
+
+  useEffect(() => {
     fetchNotifications();
-    // Request notification permission
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
-    // Poll every 5 minutes
     const interval = setInterval(fetchNotifications, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchNotifications]);
 
   // Close dropdown on outside click
   useEffect(() => {

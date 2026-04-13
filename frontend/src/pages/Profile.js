@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { User, Leaf, FloppyDisk, SignOut } from '@phosphor-icons/react';
@@ -19,16 +19,15 @@ export default function Profile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const res = await axios.get(`${API}/profile`, { withCredentials: true });
-        setProfile(res.data);
-      } catch (e) { console.error(e); }
-      finally { setLoading(false); }
-    };
-    fetchProfile();
+  const fetchProfile = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/profile`, { withCredentials: true });
+      setProfile(res.data);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }, []);
+
+  useEffect(() => { fetchProfile(); }, [fetchProfile]);
 
   const toggleAllergy = (a) => {
     const allergies = profile.allergies || [];

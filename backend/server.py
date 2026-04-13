@@ -526,7 +526,7 @@ Respond in this exact JSON format:
 
 @api_router.post("/scan/receipt")
 async def scan_receipt(request: Request, file: UploadFile = File(...)):
-    user = await get_current_user(request)
+    await get_current_user(request)  # Auth gate
     from emergentintegrations.llm.chat import UserMessage, ImageContent
     data = await file.read()
     b64 = base64.b64encode(data).decode("utf-8")
@@ -553,7 +553,7 @@ Respond in this exact JSON format:
 @api_router.post("/grocery/suggestions")
 async def get_grocery_suggestions(req: GroceryRequest, request: Request):
     user = await get_current_user(request)
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    from emergentintegrations.llm.chat import UserMessage
     pantry_str = ", ".join(req.pantry_ingredients) if req.pantry_ingredients else "mostly empty pantry"
     prefs = ", ".join(req.preferences) if req.preferences else "no specific preferences"
     prompt = f"""Given a pantry with: {pantry_str}
@@ -576,26 +576,12 @@ Respond in this exact JSON format:
   ],
   "meal_plan_preview": "Brief description of meals possible with these additions"
 }}"""
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"grocery_{uuid.uuid4().hex[:8]}",
-        system_message="You are a smart grocery shopping assistant. Suggest practical, budget-conscious grocery items. Always respond with valid JSON only."
-    )
-    chat.with_model("openai", "gpt-5.2")
-    user_msg = UserMessage(text=prompt)
-    response = await chat.send_message(user_msg)
-    import json
+    chat = await create_llm_chat("grocery", "You are a smart grocery shopping assistant. Suggest practical, budget-conscious grocery items. Always respond with valid JSON only.")
+    response = await chat.send_message(UserMessage(text=prompt))
     try:
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-        result = json.loads(clean)
+        return parse_ai_json(response)
     except json.JSONDecodeError:
-        result = {"suggestions": [], "meal_plan_preview": response[:300]}
-    return result
+        return {"suggestions": [], "meal_plan_preview": response[:300]}
 
 # ========== PROFILE ROUTES ==========
 @api_router.get("/profile")
@@ -624,18 +610,16 @@ async def get_stats(request: Request):
     expiring_items = await db.pantry_items.find(
         {"user_id": uid, "expiry_date": {"$ne": None}}, {"_id": 0}
     ).to_list(500)
-    expiring_soon = []
     now = datetime.now(timezone.utc)
+    expiring_soon = []
     for item in expiring_items:
-        try:
-            exp = datetime.fromisoformat(item["expiry_date"])
-            if exp.tzinfo is None:
-                exp = exp.replace(tzinfo=timezone.utc)
-            if (exp - now).days <= 3 and (exp - now).days >= 0:
-                item["days_left"] = (exp - now).days
-                expiring_soon.append(item)
-        except (ValueError, TypeError):
-            pass
+        exp = parse_expiry_date(item.get("expiry_date", ""))
+        if not exp:
+            continue
+        days_left = (exp - now).days
+        if 0 <= days_left <= 3:
+            item["days_left"] = days_left
+            expiring_soon.append(item)
     categories = {}
     items = await db.pantry_items.find({"user_id": uid}, {"_id": 0}).to_list(500)
     for item in items:
@@ -651,7 +635,7 @@ async def get_stats(request: Request):
 # ========== BARCODE LOOKUP ==========
 @api_router.get("/barcode/{code}")
 async def lookup_barcode(code: str, request: Request):
-    user = await get_current_user(request)
+    await get_current_user(request)  # Auth gate
     try:
         resp = requests.get(
             f"https://world.openfoodfacts.org/api/v0/product/{code}.json",
@@ -662,27 +646,9 @@ async def lookup_barcode(code: str, request: Request):
         if data.get("status") == 1:
             product = data.get("product", {})
             name = product.get("product_name") or product.get("generic_name") or "Unknown Product"
-            categories_tags = product.get("categories_tags", [])
-            category = "other"
-            cat_map = {
-                "meat": "protein", "fish": "protein", "chicken": "protein", "beef": "protein", "pork": "protein",
-                "milk": "dairy", "cheese": "dairy", "yogurt": "dairy", "butter": "dairy", "cream": "dairy",
-                "vegetable": "vegetable", "salad": "vegetable", "tomato": "vegetable",
-                "fruit": "fruit", "apple": "fruit", "banana": "fruit", "berry": "fruit", "orange": "fruit",
-                "bread": "grain", "pasta": "grain", "rice": "grain", "cereal": "grain", "flour": "grain",
-                "spice": "spice", "herb": "spice", "pepper": "spice",
-                "sauce": "condiment", "ketchup": "condiment", "mustard": "condiment", "dressing": "condiment",
-                "beverage": "beverage", "juice": "beverage", "soda": "beverage", "water": "beverage", "coffee": "beverage", "tea": "beverage",
-                "snack": "snack", "chip": "snack", "cookie": "snack", "candy": "snack", "chocolate": "snack",
-            }
-            cat_str = " ".join(categories_tags).lower()
-            for keyword, cat_val in cat_map.items():
-                if keyword in cat_str:
-                    category = cat_val
-                    break
+            category = classify_barcode_category(product.get("categories_tags", []))
             return {
-                "found": True,
-                "name": name,
+                "found": True, "name": name,
                 "brand": product.get("brands", ""),
                 "category": category,
                 "quantity": product.get("quantity", ""),
@@ -690,8 +656,7 @@ async def lookup_barcode(code: str, request: Request):
                 "nutriscore": product.get("nutriscore_grade", ""),
                 "calories": product.get("nutriments", {}).get("energy-kcal_100g", ""),
             }
-        else:
-            return {"found": False, "code": code}
+        return {"found": False, "code": code}
     except Exception as e:
         logger.error(f"Barcode lookup error: {e}")
         return {"found": False, "code": code, "error": str(e)}
@@ -707,24 +672,14 @@ async def get_expiring_notifications(request: Request):
     now = datetime.now(timezone.utc)
     notifications = []
     for item in items:
-        try:
-            exp = datetime.fromisoformat(item["expiry_date"])
-            if exp.tzinfo is None:
-                exp = exp.replace(tzinfo=timezone.utc)
-            days_left = (exp - now).days
-            if days_left < 0:
-                notifications.append({**item, "days_left": days_left, "urgency": "expired", "message": f"{item['name']} has expired!"})
-            elif days_left == 0:
-                notifications.append({**item, "days_left": 0, "urgency": "today", "message": f"{item['name']} expires today!"})
-            elif days_left <= 2:
-                notifications.append({**item, "days_left": days_left, "urgency": "critical", "message": f"{item['name']} expires in {days_left} day{'s' if days_left > 1 else ''}!"})
-            elif days_left <= 5:
-                notifications.append({**item, "days_left": days_left, "urgency": "warning", "message": f"{item['name']} expires in {days_left} days"})
-        except (ValueError, TypeError):
-            pass
-    # Remove any _id that might sneak through via spread
-    for n in notifications:
-        n.pop("_id", None)
+        exp = parse_expiry_date(item.get("expiry_date", ""))
+        if not exp:
+            continue
+        days_left = (exp - now).days
+        notification = classify_expiry(item, days_left)
+        if notification:
+            notification.pop("_id", None)
+            notifications.append(notification)
     notifications.sort(key=lambda x: x["days_left"])
     return {"notifications": notifications, "count": len(notifications)}
 
@@ -773,25 +728,15 @@ async def clear_meal_plan(request: Request):
 @api_router.post("/mealplan/generate")
 async def generate_meal_plan(request: Request):
     user = await get_current_user(request)
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    from emergentintegrations.llm.chat import UserMessage
     uid = user["user_id"]
     pantry_items = await db.pantry_items.find({"user_id": uid}, {"_id": 0, "name": 1}).to_list(200)
     pantry_str = ", ".join([i["name"] for i in pantry_items]) if pantry_items else "limited pantry"
     body = await request.json()
     days = body.get("days", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
-    allergies = user.get("allergies", [])
-    dietary = user.get("dietary_preferences", [])
     skill = user.get("skill_level", "beginner")
     servings = user.get("default_servings", 2)
-    cal_target = user.get("calorie_target")
-    constraints = []
-    if allergies:
-        constraints.append(f"Allergies (AVOID completely): {', '.join(allergies)}")
-    if dietary:
-        constraints.append(f"Dietary preferences: {', '.join(dietary)}")
-    if cal_target:
-        constraints.append(f"Target ~{cal_target} calories per day")
-    constraints_str = "\n".join(constraints) if constraints else "No special constraints."
+    constraints_str = build_user_constraints(user)
     prompt = f"""Create a weekly meal plan for these days: {', '.join(days)}
 Available pantry ingredients: {pantry_str}
 Skill level: {skill}
@@ -822,40 +767,15 @@ For each day, provide breakfast, lunch, and dinner. Respond in this exact JSON f
   "shopping_list": ["items needed that aren't in pantry"],
   "estimated_weekly_calories": 14000
 }}"""
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"mealplan_{uuid.uuid4().hex[:8]}",
-        system_message="You are a meal planning expert. Create balanced, practical weekly meal plans. Always respond with valid JSON only."
-    )
-    chat.with_model("openai", "gpt-5.2")
-    user_msg = UserMessage(text=prompt)
-    response = await chat.send_message(user_msg)
-    import json
+    chat = await create_llm_chat("mealplan", "You are a meal planning expert. Create balanced, practical weekly meal plans. Always respond with valid JSON only.")
+    response = await chat.send_message(UserMessage(text=prompt))
     try:
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-        result = json.loads(clean)
+        result = parse_ai_json(response)
     except json.JSONDecodeError:
         logger.error(f"Meal plan parse error: {response[:200]}")
         result = {"meal_plan": [], "shopping_list": [], "error": "Failed to parse AI response"}
-    # Save each meal entry to DB
     if result.get("meal_plan"):
-        await db.meal_plans.delete_many({"user_id": uid})
-        for day_plan in result["meal_plan"]:
-            for meal in day_plan.get("meals", []):
-                doc = {
-                    "entry_id": f"meal_{uuid.uuid4().hex[:12]}",
-                    "user_id": uid,
-                    "day": day_plan["day"],
-                    "meal_type": meal.get("meal_type", ""),
-                    "recipe": meal,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                await db.meal_plans.insert_one(doc)
+        await save_meal_plan_entries(uid, result["meal_plan"])
     return result
 
 # ========== GROCERY CART ==========
@@ -1049,7 +969,7 @@ async def stripe_webhook(request: Request):
 @api_router.post("/grocery/suggestions-priced")
 async def get_grocery_suggestions_priced(req: GroceryRequest, request: Request):
     user = await get_current_user(request)
-    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    from emergentintegrations.llm.chat import UserMessage
     pantry_str = ", ".join(req.pantry_ingredients) if req.pantry_ingredients else "mostly empty pantry"
     prefs = ", ".join(req.preferences) if req.preferences else "no specific preferences"
     prompt = f"""Given a pantry with: {pantry_str}
@@ -1072,26 +992,12 @@ Respond in this exact JSON format (no markdown):
   ],
   "meal_plan_preview": "Brief description of meals possible with these additions"
 }}"""
-    chat = LlmChat(
-        api_key=EMERGENT_KEY,
-        session_id=f"grocery_p_{uuid.uuid4().hex[:8]}",
-        system_message="You are a smart grocery shopping assistant. Suggest practical items with realistic USD prices. Always respond with valid JSON only."
-    )
-    chat.with_model("openai", "gpt-5.2")
-    user_msg = UserMessage(text=prompt)
-    response = await chat.send_message(user_msg)
-    import json
+    chat = await create_llm_chat("grocery_p", "You are a smart grocery shopping assistant. Suggest practical items with realistic USD prices. Always respond with valid JSON only.")
+    response = await chat.send_message(UserMessage(text=prompt))
     try:
-        clean = response.strip()
-        if clean.startswith("```"):
-            clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
-            if clean.endswith("```"):
-                clean = clean[:-3]
-            clean = clean.strip()
-        result = json.loads(clean)
+        return parse_ai_json(response)
     except json.JSONDecodeError:
-        result = {"suggestions": [], "meal_plan_preview": response[:300]}
-    return result
+        return {"suggestions": [], "meal_plan_preview": response[:300]}
 
 app.include_router(api_router)
 

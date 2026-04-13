@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import { CookingPot, Timer, Fire, Users, Sparkle, X, Plus, BookmarkSimple, FunnelSimple, Knife } from '@phosphor-icons/react';
@@ -51,7 +51,7 @@ export default function RecipeGenerator() {
       } catch (e) { console.error(e); }
     };
     fetchPantry();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addIngredient = (name) => {
     const trimmed = name.trim();

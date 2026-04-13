@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -14,19 +14,18 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await axios.get(`${API}/stats`, { withCredentials: true });
-        setStats(res.data);
-      } catch (e) {
-        console.error('Stats fetch error:', e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchStats();
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API}/stats`, { withCredentials: true });
+      setStats(res.data);
+    } catch (e) {
+      console.error('Stats fetch error:', e);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   const quickActions = [
     { icon: <CookingPot size={24} weight="duotone" />, label: "Generate Recipes", path: "/recipes", color: "bg-[#2C5545] text-white" },
