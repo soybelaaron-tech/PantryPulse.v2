@@ -20,7 +20,7 @@ async def generate_recipes(req: RecipeGenerateRequest, request: Request):
     from emergentintegrations.llm.chat import UserMessage
     ingredients_str = ", ".join(req.ingredients) if req.ingredients else "whatever is available"
     filters_str = build_recipe_filters(req, user)
-    prompt = f"""Generate exactly 3 recipes using these ingredients: {ingredients_str}
+    prompt = f"""Generate exactly 8 recipes using these ingredients: {ingredients_str}
 
 Servings: {req.servings}
 
