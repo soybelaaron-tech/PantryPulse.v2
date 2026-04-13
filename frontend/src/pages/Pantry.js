@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Trash, PencilSimple, FunnelSimple, MagnifyingGlass, X } from '@phosphor-icons/react';
+import { Plus, Trash, PencilSimple, FunnelSimple, MagnifyingGlass, X, Lightning } from '@phosphor-icons/react';
 import Navbar from '../components/Navbar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Calendar } from '../components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '../components/ui/popover';
 import { format } from 'date-fns';
+import { toast } from 'sonner';
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -24,6 +25,29 @@ const CATEGORIES = [
   { value: 'other', label: 'Other', color: 'bg-gray-50 text-gray-700 border-gray-200' },
 ];
 
+const QUICK_ADD_ITEMS = [
+  { name: 'Eggs', category: 'protein', quantity: '12', unit: 'pcs' },
+  { name: 'Milk', category: 'dairy', quantity: '1', unit: 'gal' },
+  { name: 'Butter', category: 'dairy', quantity: '1', unit: 'stick' },
+  { name: 'Chicken Breast', category: 'protein', quantity: '1', unit: 'lb' },
+  { name: 'Rice', category: 'grain', quantity: '1', unit: 'lb' },
+  { name: 'Onion', category: 'vegetable', quantity: '2', unit: 'pcs' },
+  { name: 'Garlic', category: 'spice', quantity: '1', unit: 'head' },
+  { name: 'Tomatoes', category: 'vegetable', quantity: '3', unit: 'pcs' },
+  { name: 'Olive Oil', category: 'condiment', quantity: '1', unit: 'bottle' },
+  { name: 'Salt', category: 'spice', quantity: '1', unit: 'container' },
+  { name: 'Pepper', category: 'spice', quantity: '1', unit: 'container' },
+  { name: 'Bread', category: 'grain', quantity: '1', unit: 'loaf' },
+  { name: 'Cheese', category: 'dairy', quantity: '8', unit: 'oz' },
+  { name: 'Pasta', category: 'grain', quantity: '1', unit: 'lb' },
+  { name: 'Ground Beef', category: 'protein', quantity: '1', unit: 'lb' },
+  { name: 'Potatoes', category: 'vegetable', quantity: '3', unit: 'pcs' },
+  { name: 'Carrots', category: 'vegetable', quantity: '4', unit: 'pcs' },
+  { name: 'Bell Pepper', category: 'vegetable', quantity: '2', unit: 'pcs' },
+  { name: 'Lemon', category: 'fruit', quantity: '2', unit: 'pcs' },
+  { name: 'Banana', category: 'fruit', quantity: '4', unit: 'pcs' },
+];
+
 function getCategoryStyle(cat) {
   return CATEGORIES.find(c => c.value === cat)?.color || 'bg-gray-50 text-gray-700 border-gray-200';
 }
@@ -37,6 +61,8 @@ export default function Pantry() {
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState({ name: '', category: 'other', quantity: '', unit: '', expiry_date: '', notes: '' });
   const [expiryDate, setExpiryDate] = useState(null);
+  const [quickAddLoading, setQuickAddLoading] = useState(new Set());
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
 
   const fetchItems = useCallback(async () => {
     try {
@@ -88,6 +114,25 @@ export default function Pantry() {
     setExpiryDate(null);
     setEditItem(null);
     setShowAdd(false);
+  };
+
+  const handleQuickAdd = async (item) => {
+    const key = item.name;
+    setQuickAddLoading(prev => new Set([...prev, key]));
+    try {
+      await axios.post(`${API}/pantry`, {
+        name: item.name,
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+      }, { withCredentials: true });
+      await fetchItems();
+      toast.success(`${item.name} added to pantry`);
+    } catch (e) {
+      toast.error(`Failed to add ${item.name}`);
+    } finally {
+      setQuickAddLoading(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
   };
 
   const filtered = items.filter(item => {
@@ -211,6 +256,58 @@ export default function Pantry() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* Quick Add Section */}
+        <div className="mb-6">
+          <button
+            data-testid="toggle-quick-add"
+            onClick={() => setShowQuickAdd(!showQuickAdd)}
+            className="inline-flex items-center gap-2 text-sm font-body font-medium text-[#2C5545] hover:text-[#3D6F5B] transition-colors mb-3"
+          >
+            <Lightning size={16} weight="fill" />
+            Quick Add Common Items
+            <svg className={`w-4 h-4 transition-transform ${showQuickAdd ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          </button>
+          <AnimatePresence>
+            {showQuickAdd && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="flex flex-wrap gap-2 pb-2">
+                  {QUICK_ADD_ITEMS.map(item => {
+                    const alreadyInPantry = items.some(i => i.name.toLowerCase() === item.name.toLowerCase());
+                    const isLoading = quickAddLoading.has(item.name);
+                    return (
+                      <button
+                        key={item.name}
+                        data-testid={`quick-add-${item.name.toLowerCase().replace(/\s+/g, '-')}`}
+                        onClick={() => handleQuickAdd(item)}
+                        disabled={isLoading}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-body font-medium border transition-all ${
+                          alreadyInPantry
+                            ? 'bg-[#E8ECE1] text-[#2C5545] border-[#D5DCC9]'
+                            : 'bg-white text-[#2D3728] border-[#E2E0D8] hover:bg-[#F4F1EA] hover:border-[#D5DCC9]'
+                        } ${isLoading ? 'opacity-60' : ''}`}
+                      >
+                        {isLoading ? (
+                          <span className="w-3 h-3 border-2 border-[#2C5545] border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <Plus size={12} weight="bold" />
+                        )}
+                        {item.name}
+                        {alreadyInPantry && <span className="text-[10px] opacity-70">in pantry</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Items Grid */}

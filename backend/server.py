@@ -8,6 +8,9 @@ import logging
 import json
 import uuid
 import base64
+import secrets
+import bcrypt
+import jwt as pyjwt
 import requests
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
@@ -24,6 +27,29 @@ db = client[os.environ['DB_NAME']]
 
 # Emergent LLM Key
 EMERGENT_KEY = os.environ.get('EMERGENT_LLM_KEY')
+
+# JWT Config
+JWT_SECRET = os.environ['JWT_SECRET']
+JWT_ALGORITHM = "HS256"
+
+# Password Hashing
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+
+def create_access_token(user_id: str, email: str) -> str:
+    payload = {"sub": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(minutes=15), "type": "access"}
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def create_refresh_token(user_id: str) -> str:
+    payload = {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"}
+    return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str):
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=900, path="/")
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=604800, path="/")
 
 # Object Storage
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
@@ -262,6 +288,22 @@ class GroceryRequest(BaseModel):
 
 # ========== AUTH HELPERS ==========
 async def get_current_user(request: Request):
+    # Try JWT access_token cookie first (standard auth)
+    access_token = request.cookies.get("access_token")
+    if access_token:
+        try:
+            payload = pyjwt.decode(access_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            if payload.get("type") == "access":
+                user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
+                if user:
+                    safe = {k: v for k, v in user.items() if k != "password_hash"}
+                    return safe
+        except pyjwt.ExpiredSignatureError:
+            pass
+        except pyjwt.InvalidTokenError:
+            pass
+
+    # Fallback: session_token cookie (Google OAuth)
     session_token = request.cookies.get("session_token")
     if not session_token:
         auth_header = request.headers.get("Authorization")
@@ -282,9 +324,117 @@ async def get_current_user(request: Request):
     user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    return user
+    safe = {k: v for k, v in user.items() if k != "password_hash"}
+    return safe
+
+
+async def check_brute_force(identifier: str):
+    record = await db.login_attempts.find_one({"identifier": identifier}, {"_id": 0})
+    if record and record.get("attempts", 0) >= 5:
+        locked_until = record.get("locked_until")
+        if locked_until:
+            if isinstance(locked_until, str):
+                locked_until = datetime.fromisoformat(locked_until)
+            if locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) < locked_until:
+                raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in 15 minutes.")
+            else:
+                await db.login_attempts.delete_one({"identifier": identifier})
+
+
+async def record_failed_attempt(identifier: str):
+    record = await db.login_attempts.find_one({"identifier": identifier}, {"_id": 0})
+    attempts = (record.get("attempts", 0) if record else 0) + 1
+    update = {"attempts": attempts, "last_attempt": datetime.now(timezone.utc).isoformat()}
+    if attempts >= 5:
+        update["locked_until"] = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+    await db.login_attempts.update_one(
+        {"identifier": identifier}, {"$set": update}, upsert=True
+    )
 
 # ========== AUTH ROUTES ==========
+
+# --- Standard Email/Password Auth ---
+class AuthRegister(BaseModel):
+    email: str
+    password: str
+    name: str = "User"
+
+class AuthLogin(BaseModel):
+    email: str
+    password: str
+
+@api_router.post("/auth/register")
+async def register_user(body: AuthRegister):
+    email = body.email.strip().lower()
+    if not email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_doc = {
+        "user_id": user_id, "email": email, "name": body.name.strip(),
+        "password_hash": hash_password(body.password),
+        "picture": None, "auth_type": "email",
+        "allergies": [], "dietary_preferences": [], "skill_level": "beginner",
+        "default_servings": 2, "calorie_target": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(user_doc)
+    access_token = create_access_token(user_id, email)
+    refresh_token = create_refresh_token(user_id)
+    resp_data = {"user_id": user_id, "email": email, "name": body.name.strip(), "picture": None}
+    resp = JSONResponse(content=resp_data)
+    set_auth_cookies(resp, access_token, refresh_token)
+    return resp
+
+@api_router.post("/auth/login")
+async def login_user(body: AuthLogin, request: Request):
+    email = body.email.strip().lower()
+    ip = request.client.host if request.client else "unknown"
+    identifier = f"{ip}:{email}"
+    await check_brute_force(identifier)
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user or not user.get("password_hash"):
+        await record_failed_attempt(identifier)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not verify_password(body.password, user["password_hash"]):
+        await record_failed_attempt(identifier)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    await db.login_attempts.delete_one({"identifier": identifier})
+    access_token = create_access_token(user["user_id"], email)
+    refresh_token = create_refresh_token(user["user_id"])
+    resp_data = {"user_id": user["user_id"], "email": email, "name": user.get("name", ""), "picture": user.get("picture")}
+    resp = JSONResponse(content=resp_data)
+    set_auth_cookies(resp, access_token, refresh_token)
+    return resp
+
+@api_router.post("/auth/refresh")
+async def refresh_token(request: Request):
+    token = request.cookies.get("refresh_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No refresh token")
+    try:
+        payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "refresh":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user = await db.users.find_one({"user_id": payload["sub"]}, {"_id": 0})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        new_access = create_access_token(payload["sub"], user["email"])
+        resp = JSONResponse(content={"message": "Token refreshed"})
+        resp.set_cookie(key="access_token", value=new_access, httponly=True, secure=True, samesite="none", max_age=900, path="/")
+        return resp
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Refresh token expired")
+    except pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+# --- Google OAuth Session Exchange (existing) ---
 @api_router.post("/auth/session")
 async def exchange_session(request: Request, response: Response):
     body = await request.json()
@@ -320,11 +470,14 @@ async def get_me(request: Request):
 
 @api_router.post("/auth/logout")
 async def logout(request: Request, response: Response):
+    # Clear session token (Google OAuth)
     session_token = request.cookies.get("session_token")
     if session_token:
         await db.user_sessions.delete_one({"session_token": session_token})
     resp = JSONResponse(content={"message": "Logged out"})
     resp.delete_cookie(key="session_token", path="/", secure=True, samesite="none")
+    resp.delete_cookie(key="access_token", path="/", secure=True, samesite="none")
+    resp.delete_cookie(key="refresh_token", path="/", secure=True, samesite="none")
     return resp
 
 # ========== PANTRY ROUTES ==========
@@ -636,11 +789,38 @@ async def get_stats(request: Request):
 @api_router.get("/barcode/{code}")
 async def lookup_barcode(code: str, request: Request):
     await get_current_user(request)  # Auth gate
+    # Try Open Food Facts v2 API first
+    try:
+        resp = requests.get(
+            f"https://world.openfoodfacts.net/api/v2/product/{code}",
+            params={"fields": "product_name,generic_name,brands,categories_tags,quantity,image_front_small_url,nutriscore_grade,nutriments"},
+            timeout=10,
+            headers={"User-Agent": "PantryPulse/1.0 (pantrypulse@app.com)"}
+        )
+        data = resp.json()
+        if data.get("status") == "success" or data.get("status") == 1:
+            product = data.get("product", {})
+            name = product.get("product_name") or product.get("generic_name") or ""
+            if name:
+                category = classify_barcode_category(product.get("categories_tags", []))
+                return {
+                    "found": True, "name": name,
+                    "brand": product.get("brands", ""),
+                    "category": category,
+                    "quantity": product.get("quantity", ""),
+                    "image_url": product.get("image_front_small_url", ""),
+                    "nutriscore": product.get("nutriscore_grade", ""),
+                    "calories": product.get("nutriments", {}).get("energy-kcal_100g", ""),
+                }
+    except Exception as e:
+        logger.warning(f"Open Food Facts v2 error: {e}")
+
+    # Fallback: try v0 API
     try:
         resp = requests.get(
             f"https://world.openfoodfacts.org/api/v0/product/{code}.json",
             timeout=10,
-            headers={"User-Agent": "PantryPulse/1.0"}
+            headers={"User-Agent": "PantryPulse/1.0 (pantrypulse@app.com)"}
         )
         data = resp.json()
         if data.get("status") == 1:
@@ -656,10 +836,41 @@ async def lookup_barcode(code: str, request: Request):
                 "nutriscore": product.get("nutriscore_grade", ""),
                 "calories": product.get("nutriments", {}).get("energy-kcal_100g", ""),
             }
-        return {"found": False, "code": code}
     except Exception as e:
-        logger.error(f"Barcode lookup error: {e}")
-        return {"found": False, "code": code, "error": str(e)}
+        logger.warning(f"Open Food Facts v0 error: {e}")
+
+    # Fallback: try UPC item database
+    try:
+        resp = requests.get(
+            f"https://api.upcitemdb.com/prod/trial/lookup?upc={code}",
+            timeout=10,
+            headers={"User-Agent": "PantryPulse/1.0"}
+        )
+        data = resp.json()
+        items = data.get("items", [])
+        if items:
+            item = items[0]
+            name = item.get("title", "Unknown Product")
+            category = item.get("category", "other").lower()
+            for keyword, cat_val in BARCODE_CATEGORY_MAP.items():
+                if keyword in category or keyword in name.lower():
+                    category = cat_val
+                    break
+            else:
+                category = "other"
+            return {
+                "found": True, "name": name,
+                "brand": item.get("brand", ""),
+                "category": category,
+                "quantity": "",
+                "image_url": (item.get("images", []) or [""])[0],
+                "nutriscore": "",
+                "calories": "",
+            }
+    except Exception as e:
+        logger.warning(f"UPC item DB error: {e}")
+
+    return {"found": False, "code": code}
 
 # ========== NOTIFICATIONS ==========
 @api_router.get("/notifications/expiring")
@@ -1016,6 +1227,34 @@ async def startup():
         logger.info("Object storage initialized")
     except Exception as e:
         logger.warning(f"Storage init failed (non-critical): {e}")
+    # Create indexes
+    try:
+        await db.users.create_index("email", unique=True)
+        await db.login_attempts.create_index("identifier")
+        logger.info("MongoDB indexes created")
+    except Exception as e:
+        logger.warning(f"Index creation: {e}")
+    # Seed admin user
+    try:
+        admin_email = os.environ.get("ADMIN_EMAIL", "admin@pantrypulse.com")
+        admin_password = os.environ.get("ADMIN_PASSWORD", "PantryPulse2024!")
+        existing = await db.users.find_one({"email": admin_email}, {"_id": 0})
+        if not existing:
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            await db.users.insert_one({
+                "user_id": user_id, "email": admin_email,
+                "password_hash": hash_password(admin_password),
+                "name": "Admin", "picture": None, "auth_type": "email",
+                "role": "admin", "allergies": [], "dietary_preferences": [],
+                "skill_level": "beginner", "default_servings": 2, "calorie_target": None,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+            logger.info(f"Admin user seeded: {admin_email}")
+        elif existing and not verify_password(admin_password, existing.get("password_hash", "")):
+            await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+            logger.info("Admin password updated")
+    except Exception as e:
+        logger.warning(f"Admin seed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
