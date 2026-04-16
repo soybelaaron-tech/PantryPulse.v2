@@ -2,17 +2,17 @@
 node_modules/
 __pycache__/
 *.pyc
-.pycache/
 venv/
 env/
 .venv/
 
-# Environment variables
+# Environment variables (keep .env.example)
 .env
 .env.local
 .env.production
 backend/.env
 frontend/.env
+!backend/.env.example
 
 # Build output
 frontend/build/
@@ -40,49 +40,14 @@ test_reports/
 # Memory (internal)
 memory/
 
+# Credentials
+credentials.json
+*.pem
+*.key
+.credentials
+
 # Misc
 *.bak
 *.tmp
 .emergent/
-frontend/node_modules/.cache/default-development/8.pack
 frontend/node_modules/.cache/default-development/0.pack
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
-frontend/node_modules/.cache/default-development/1.pack
-frontend/node_modules/.cache/default-development/2.pack
-frontend/node_modules/.cache/default-development/6.pack
-frontend/node_modules/.cache/default-development/7.pack
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials

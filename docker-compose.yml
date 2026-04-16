@@ -1,0 +1,22 @@
+services:
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  app:
+    build: .
+    ports:
+      - "8001:8001"
+    env_file:
+      - backend/.env
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=pantry_pulse
+    depends_on:
+      - mongodb
+
+volumes:
+  mongo_data:

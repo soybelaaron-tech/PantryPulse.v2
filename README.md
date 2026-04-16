@@ -1,132 +1,138 @@
 # Pantry Pulse
 
-**AI-Powered Cooking Assistant** — Turn your ingredients into delicious meals with AI recipe generation, pantry tracking, barcode scanning, meal planning, and smart grocery ordering.
+AI-powered cooking assistant that turns your ingredients into delicious meals. Track your pantry, scan barcodes and receipts, generate recipes with GPT-5.2, plan weekly meals, and order groceries.
+
+## Quick Start (Docker)
+
+The fastest way to run the full app:
+
+```bash
+git clone <your-repo-url>
+cd pantry-pulse
+```
+
+**1. Set up your environment variables:**
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Edit `backend/.env` and fill in your keys:
+
+```
+MONGO_URL=mongodb://mongodb:27017
+DB_NAME=pantry_pulse
+EMERGENT_LLM_KEY=your_emergent_key_here
+STRIPE_API_KEY=your_stripe_key_here
+JWT_SECRET=your_random_secret_here
+ADMIN_EMAIL=admin@pantrypulse.com
+ADMIN_PASSWORD=YourAdminPassword123!
+```
+
+**2. Run with Docker Compose:**
+
+```bash
+docker compose up --build
+```
+
+Open **http://localhost:8001** — the app is ready.
+
+---
+
+## Manual Setup (without Docker)
+
+### Prerequisites
+
+- Node.js 18+
+- Python 3.11+
+- MongoDB running locally on port 27017
+
+### Backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+cp .env.example .env   # Edit with your keys
+uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+```
+
+### Frontend
+
+```bash
+cd frontend
+yarn install
+```
+
+Create `frontend/.env`:
+```
+REACT_APP_BACKEND_URL=http://localhost:8001
+```
+
+```bash
+yarn start
+```
+
+Open **http://localhost:3000**
+
+---
 
 ## Features
 
-- **AI Recipe Generator** — Enter ingredients and get personalized recipes powered by OpenAI GPT-5.2. Filter by cook time, budget, skill level, dietary restrictions, servings, calories, cuisine, and meal type.
-- **Quick-Add Ingredients** — 80+ common ingredients organized in 7 categories (Proteins, Vegetables, Fruits, Dairy, Grains, Pantry Staples, Spices) for one-tap adding.
-- **Pantry Tracker** — Track all your ingredients with categories, quantities, expiry dates, and notes. Search and filter by category.
-- **Barcode Scanner** — Scan product barcodes via camera (html5-qrcode) with automatic product lookup via Open Food Facts API. Manual entry fallback.
-- **Photo & Receipt Scanning** — Upload photos of food items or grocery receipts. AI vision identifies and categorizes items for instant pantry adding.
-- **Weekly Meal Planner** — AI generates 7-day meal plans (breakfast, lunch, dinner) based on your pantry, preferences, and dietary needs. Includes auto-generated shopping lists.
-- **Smart Grocery Cart** — AI suggests items with estimated prices. Add to cart, choose a store (Instacart, Walmart, ShopRite, Amazon Fresh, Target), and checkout.
-- **Stripe Checkout** — $2.50 service fee per order. After payment, items auto-add to pantry and user is deep-linked to their chosen store.
-- **Expiry Notifications** — Notification bell with color-coded alerts for expiring items. Browser push notification support.
-- **User Profiles** — Google OAuth login. Set allergies, dietary preferences, skill level, serving size, and calorie targets. AI respects all preferences.
-- **Saved Recipes** — Bookmark and manage your favorite generated recipes.
+- **AI Recipe Generator** — Enter ingredients, get 8 creative recipes powered by GPT-5.2
+- **Pantry Tracking** — Full CRUD with categories, expiry dates, and Quick Add for common items
+- **Barcode Scanner** — Camera scanning + manual entry with 3 fallback APIs (Open Food Facts v2, v0, UPC Item DB)
+- **Receipt Scanner** — Upload grocery receipt photos, AI extracts all items with abbreviation expansion
+- **Photo Scanner** — Snap a photo of food, AI identifies ingredients
+- **Meal Planner** — AI-generated weekly meal plans based on your pantry and preferences
+- **Grocery Cart** — Smart suggestions + Stripe checkout for ordering fees
+- **Cook This** — One-click to deduct recipe ingredients from your pantry
+- **Expiry Notifications** — Get alerted before food goes bad
+- **Dual Auth** — Email/password (JWT) + Google OAuth
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| **Frontend** | React, Tailwind CSS, Shadcn/UI, Framer Motion, Phosphor Icons, html5-qrcode |
-| **Backend** | Python FastAPI, Motor (async MongoDB) |
-| **Database** | MongoDB |
-| **AI** | OpenAI GPT-5.2 (text + vision) via Emergent Integrations |
-| **Payments** | Stripe via Emergent Integrations |
-| **Auth** | Google OAuth via Emergent Auth |
-| **Storage** | Emergent Object Storage (photo uploads) |
-| **Barcode API** | Open Food Facts |
+| Frontend | React 19, Tailwind CSS, Shadcn/UI, Framer Motion |
+| Backend | FastAPI (modular routers), Motor (async MongoDB) |
+| Database | MongoDB |
+| AI | GPT-5.2 via Emergent Integrations |
+| Auth | JWT (httpOnly cookies) + Google OAuth |
+| Payments | Stripe |
+| Barcode | Open Food Facts + UPC Item DB |
 
 ## Project Structure
 
 ```
-/app
 ├── backend/
-│   ├── server.py          # FastAPI application (all API routes)
-│   ├── .env               # Environment variables
-│   └── requirements.txt   # Python dependencies
+│   ├── server.py          # App entrypoint
+│   ├── core/              # Database, auth, LLM, storage, helpers
+│   ├── models/            # Pydantic schemas
+│   ├── routes/            # API routers (auth, pantry, recipes, scan, grocery, mealplan, profile)
+│   └── .env.example
 ├── frontend/
-│   ├── public/            # Static assets
 │   ├── src/
-│   │   ├── App.js         # Main app with routing
-│   │   ├── context/
-│   │   │   └── AuthContext.js
-│   │   ├── components/
-│   │   │   ├── Navbar.js
-│   │   │   ├── NotificationBell.js
-│   │   │   ├── ProtectedRoute.js
-│   │   │   └── ui/        # Shadcn/UI components
-│   │   └── pages/
-│   │       ├── Landing.js
-│   │       ├── AuthCallback.js
-│   │       ├── Dashboard.js
-│   │       ├── Pantry.js
-│   │       ├── RecipeGenerator.js
-│   │       ├── SavedRecipes.js
-│   │       ├── Scanner.js
-│   │       ├── MealPlanner.js
-│   │       ├── GroceryList.js
-│   │       └── Profile.js
-│   ├── .env               # Frontend environment variables
-│   ├── package.json
-│   └── tailwind.config.js
+│   │   ├── components/    # Navbar, UI components
+│   │   ├── context/       # Auth context
+│   │   └── pages/         # All page components
+│   └── public/
+├── Dockerfile
+├── docker-compose.yml
 └── README.md
 ```
 
 ## Environment Variables
 
-### Backend (`/backend/.env`)
-```
-MONGO_URL=mongodb://localhost:27017
-DB_NAME=pantry_pulse
-EMERGENT_LLM_KEY=your_emergent_llm_key
-STRIPE_API_KEY=your_stripe_key
-```
-
-### Frontend (`/frontend/.env`)
-```
-REACT_APP_BACKEND_URL=http://localhost:8001
-```
-
-## Getting Started
-
-### Prerequisites
-- Python 3.10+
-- Node.js 18+
-- MongoDB
-
-### Backend Setup
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn server:app --host 0.0.0.0 --port 8001 --reload
-```
-
-### Frontend Setup
-```bash
-cd frontend
-yarn install
-yarn start
-```
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/session` | Exchange OAuth session |
-| GET | `/api/auth/me` | Get current user |
-| POST | `/api/auth/logout` | Logout |
-| GET/POST | `/api/pantry` | List/add pantry items |
-| POST | `/api/pantry/bulk` | Bulk add items |
-| PUT/DELETE | `/api/pantry/{id}` | Update/delete item |
-| POST | `/api/recipes/generate` | AI recipe generation |
-| GET/POST | `/api/recipes/saved` | List/save recipes |
-| DELETE | `/api/recipes/saved/{id}` | Delete saved recipe |
-| POST | `/api/scan/photo` | AI photo scanning |
-| POST | `/api/scan/receipt` | AI receipt scanning |
-| GET | `/api/barcode/{code}` | Barcode product lookup |
-| GET/POST/DELETE | `/api/mealplan` | Meal plan CRUD |
-| POST | `/api/mealplan/generate` | AI meal plan generation |
-| POST | `/api/grocery/suggestions-priced` | AI grocery suggestions |
-| GET/POST/DELETE | `/api/cart` | Shopping cart CRUD |
-| POST | `/api/cart/checkout` | Stripe checkout |
-| GET | `/api/cart/checkout/status/{id}` | Payment status |
-| GET/PUT | `/api/profile` | User profile |
-| GET | `/api/notifications/expiring` | Expiry notifications |
-| GET | `/api/stats` | Dashboard stats |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `MONGO_URL` | MongoDB connection string | Yes |
+| `DB_NAME` | Database name | Yes |
+| `EMERGENT_LLM_KEY` | Emergent universal key for GPT-5.2 | Yes |
+| `JWT_SECRET` | Secret for JWT token signing | Yes |
+| `STRIPE_API_KEY` | Stripe secret key for payments | Yes |
+| `ADMIN_EMAIL` | Seeded admin account email | No |
+| `ADMIN_PASSWORD` | Seeded admin account password | No |
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+MIT
